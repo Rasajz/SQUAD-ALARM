@@ -95,6 +95,9 @@ export default function DirectMessages({ user, db, activeCallId, setActiveCallId
   const chatEndRef = useRef(null);
   const [fullImg, setFullImg] = useState(null);
 
+  const [isVideoOn, setIsVideoOn] = useState(false);
+  const localVideoRef = useRef(null);
+
   // 1. Fetch Contacts
   useEffect(() => {
     const usersRef = ref(db, 'users');
@@ -247,6 +250,12 @@ export default function DirectMessages({ user, db, activeCallId, setActiveCallId
     return () => clearInterval(timerId);
   }, [callData?.status]);
 
+  useEffect(() => {
+    if (callData?.status === 'accepted' && streamRef.current && localVideoRef.current) {
+      localVideoRef.current.srcObject = streamRef.current;
+    }
+  }, [callData?.status, streamRef.current]);
+
   const formatDuration = (seconds) => {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
     const s = (seconds % 60).toString().padStart(2, '0');
@@ -269,7 +278,18 @@ export default function DirectMessages({ user, db, activeCallId, setActiveCallId
     }
     setIsMuted(false);
     setIsDeafened(false);
+    setIsVideoOn(false);
     off(ref(db, `private_signals/${activeCallId}_${user.uid}`));
+  };
+
+  const toggleVideo = () => {
+    if (streamRef.current) {
+      const videoTrack = streamRef.current.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.enabled = !videoTrack.enabled;
+        setIsVideoOn(videoTrack.enabled);
+      }
+    }
   };
 
   const toggleMute = () => {
@@ -288,9 +308,11 @@ export default function DirectMessages({ user, db, activeCallId, setActiveCallId
 
   const startCall = async (contact) => {
     try {
-      const localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+      localStream.getVideoTracks().forEach(t => t.enabled = false);
       setStream(localStream);
       streamRef.current = localStream;
+      setIsVideoOn(false);
 
       const callId = user.uid < contact.uid ? `${user.uid}_${contact.uid}` : `${contact.uid}_${user.uid}`;
       
@@ -316,9 +338,11 @@ export default function DirectMessages({ user, db, activeCallId, setActiveCallId
 
   const acceptCall = async () => {
     try {
-      const localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+      localStream.getVideoTracks().forEach(t => t.enabled = false);
       setStream(localStream);
       streamRef.current = localStream;
+      setIsVideoOn(false);
 
       await set(ref(db, `calls/${activeCallId}/status`), 'accepted');
     } catch (e) {
@@ -373,6 +397,7 @@ export default function DirectMessages({ user, db, activeCallId, setActiveCallId
     peer.on('stream', remoteStream => {
       if (audioRef.current) {
         audioRef.current.srcObject = remoteStream;
+        try { audioRef.current.play().catch(()=>{}); } catch(_) {}
       }
     });
 
@@ -406,11 +431,13 @@ export default function DirectMessages({ user, db, activeCallId, setActiveCallId
     const otherPhoto = callData.caller === user.uid ? callData.receiverPhoto : callData.callerPhoto;
 
     return (
-      <div style={{ padding: 20, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#000' }}>
-        <audio ref={audioRef} autoPlay playsInline muted={isDeafened} />
+      <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#000', overflow: 'hidden' }}>
+        
+        {/* Only render audio/remote video if call is NOT accepted (i.e. ringing) to avoid duplication */}
+        {!isAccepted && <audio ref={audioRef} autoPlay playsInline muted={isDeafened} />}
         
         {isIncoming && (
-          <div style={{ textAlign: 'center' }}>
+          <div style={{ textAlign: 'center', position: 'relative', zIndex: 1 }}>
             <img src={otherPhoto} style={{ width: 100, height: 100, borderRadius: '50%', marginBottom: 16, border: '4px solid #ef4444', animation: 'pulse 1.5s infinite' }} />
             <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 8 }}>{otherName}</div>
             <div style={{ color: '#94a3b8', marginBottom: 40 }}>is calling you...</div>
@@ -423,7 +450,7 @@ export default function DirectMessages({ user, db, activeCallId, setActiveCallId
         )}
 
         {isOutgoing && (
-          <div style={{ textAlign: 'center' }}>
+          <div style={{ textAlign: 'center', position: 'relative', zIndex: 1 }}>
             <img src={otherPhoto} style={{ width: 100, height: 100, borderRadius: '50%', marginBottom: 16, border: '4px solid #64748b' }} />
             <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 8 }}>{otherName}</div>
             <div style={{ color: '#94a3b8', marginBottom: 40 }}>Ringing...</div>
@@ -432,25 +459,39 @@ export default function DirectMessages({ user, db, activeCallId, setActiveCallId
         )}
 
         {isAccepted && (
-          <div style={{ textAlign: 'center', width: '100%', maxWidth: '300px' }}>
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '30px', justifyContent: 'center' }}>
-              <div className="sb-dot" style={{ background: '#22c55e', boxShadow: '0 0 12px #22c55e' }}></div>
-              <span style={{ fontSize: '14px', fontWeight: '800', color: '#22c55e', letterSpacing: '0.05em' }}>PRIVATE SECURE CALL</span>
-            </div>
-            <img src={otherPhoto} style={{ width: 100, height: 100, borderRadius: '50%', marginBottom: 16, border: '4px solid #22c55e' }} />
-            <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 8 }}>{otherName}</div>
-            <div style={{ color: '#94a3b8', marginBottom: 40, fontFamily: "'JetBrains Mono', monospace", fontSize: '18px' }}>{formatDuration(callDuration)}</div>
+          <div style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+            {/* Remote Video Background */}
+            <video ref={audioRef} autoPlay playsInline muted={isDeafened} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0 }} />
             
-            <div style={{ display: 'flex', gap: '24px', justifyContent: 'center', marginTop: '20px' }}>
-              <button onClick={toggleMute} style={{ width: '64px', height: '64px', borderRadius: '50%', background: isMuted ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.1)', border: '1px solid ' + (isMuted ? '#ef4444' : 'rgba(255, 255, 255, 0.2)'), color: isMuted ? '#ef4444' : '#fff', fontSize: '24px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}>
-                {isMuted ? '🔇' : '🎤'}
-              </button>
-              <button onClick={endCall} style={{ width: '72px', height: '72px', borderRadius: '50%', background: '#ef4444', border: 'none', color: '#fff', fontSize: '14px', fontWeight: '800', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 24px rgba(239, 68, 68, 0.4)', transition: 'all 0.2s' }}>
-                END
-              </button>
-              <button onClick={toggleDeafen} style={{ width: '64px', height: '64px', borderRadius: '50%', background: isDeafened ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.1)', border: '1px solid ' + (isDeafened ? '#ef4444' : 'rgba(255, 255, 255, 0.2)'), color: isDeafened ? '#ef4444' : '#fff', fontSize: '24px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}>
-                {isDeafened ? '🔕' : '🔊'}
-              </button>
+            {/* Local Video Picture-in-Picture */}
+            <video ref={localVideoRef} autoPlay playsInline muted style={{ position: 'absolute', bottom: 20, right: 20, width: 100, height: 150, backgroundColor: '#1e293b', objectFit: 'cover', borderRadius: 12, border: '2px solid rgba(255,255,255,0.1)', zIndex: 10, opacity: isVideoOn ? 1 : 0, transition: 'opacity 0.3s' }} />
+            
+            {/* Call Overlay Card */}
+            <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'rgba(0,0,0,0.6)', padding: '40px 30px', borderRadius: 32, backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.05)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '24px', justifyContent: 'center' }}>
+                <div className="sb-dot" style={{ background: '#22c55e', boxShadow: '0 0 12px #22c55e' }}></div>
+                <span style={{ fontSize: '14px', fontWeight: '800', color: '#22c55e', letterSpacing: '0.05em' }}>SECURE CALL</span>
+              </div>
+              
+              <img src={otherPhoto} style={{ width: 120, height: 120, borderRadius: '50%', marginBottom: 20, border: '4px solid #22c55e', boxShadow: '0 0 20px rgba(34, 197, 94, 0.4)' }} />
+              <div style={{ fontSize: 28, fontWeight: 800, marginBottom: 8, color: '#f8fafc' }}>{otherName}</div>
+              <div style={{ color: '#94a3b8', marginBottom: 40, fontFamily: "'JetBrains Mono', monospace", fontSize: '20px' }}>{formatDuration(callDuration)}</div>
+              
+              {/* Controls */}
+              <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', marginTop: '10px' }}>
+                <button onClick={toggleVideo} style={{ width: '64px', height: '64px', borderRadius: '50%', background: isVideoOn ? 'rgba(255, 255, 255, 0.1)' : 'rgba(239, 68, 68, 0.2)', border: '1px solid ' + (!isVideoOn ? '#ef4444' : 'rgba(255, 255, 255, 0.2)'), color: !isVideoOn ? '#ef4444' : '#fff', fontSize: '24px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}>
+                  {!isVideoOn ? '🚫📹' : '📹'}
+                </button>
+                <button onClick={toggleMute} style={{ width: '64px', height: '64px', borderRadius: '50%', background: isMuted ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.1)', border: '1px solid ' + (isMuted ? '#ef4444' : 'rgba(255, 255, 255, 0.2)'), color: isMuted ? '#ef4444' : '#fff', fontSize: '24px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}>
+                  {isMuted ? '🔇' : '🎤'}
+                </button>
+                <button onClick={endCall} style={{ width: '72px', height: '72px', borderRadius: '50%', background: '#ef4444', border: 'none', color: '#fff', fontSize: '14px', fontWeight: '800', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 24px rgba(239, 68, 68, 0.4)', transition: 'all 0.2s' }}>
+                  END
+                </button>
+                <button onClick={toggleDeafen} style={{ width: '64px', height: '64px', borderRadius: '50%', background: isDeafened ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.1)', border: '1px solid ' + (isDeafened ? '#ef4444' : 'rgba(255, 255, 255, 0.2)'), color: isDeafened ? '#ef4444' : '#fff', fontSize: '24px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}>
+                  {isDeafened ? '🔕' : '🔊'}
+                </button>
+              </div>
             </div>
           </div>
         )}

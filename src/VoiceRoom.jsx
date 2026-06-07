@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ref, onValue, set, push, onChildAdded, remove, off } from 'firebase/database';
+import { ref, onValue, set, push, onChildAdded, remove, off, onDisconnect } from 'firebase/database';
 import Peer from 'simple-peer';
 
 export default function VoiceRoom({ user, db }) {
@@ -42,13 +42,15 @@ export default function VoiceRoom({ user, db }) {
       streamRef.current = localStream;
       setInRoom(true);
 
-      // Add self to lobby
+      // Add self to lobby (ensure removal on disconnect)
       const myRef = ref(db, `voice_lobby/${user.uid}`);
       await set(myRef, {
         name: user.name,
         photoURL: user.photoURL,
         joinedAt: Date.now()
       });
+      // Ensure lobby entry is removed if client disconnects unexpectedly
+      onDisconnect(myRef).remove();
 
       // Listen for signals sent TO me
       const signalsRef = ref(db, `voice_signals/${user.uid}`);
@@ -71,21 +73,29 @@ export default function VoiceRoom({ user, db }) {
         remove(ref(db, `voice_signals/${user.uid}/${signalId}`));
       });
 
-      // Listen to lobby to connect to existing users
+      // Listen to lobby to connect to existing users and detect removals
       const lobbyRef = ref(db, 'voice_lobby');
       onValue(lobbyRef, (snap) => {
         const currentLobby = snap.val() || {};
+        const currentKeys = new Set(Object.keys(currentLobby));
+        // Remove peers that left
+        Object.keys(peersRef.current).forEach(uid => {
+          if (!currentKeys.has(uid)) {
+            try { peersRef.current[uid].peer.destroy(); } catch(_) {}
+            delete peersRef.current[uid];
+          }
+        });
+        // Add new peers
         Object.keys(currentLobby).forEach(otherUid => {
           if (otherUid !== user.uid && !peersRef.current[otherUid]) {
-            // I joined, and found someone already here. I will initiate.
-            // Actually, to avoid both initiating, we enforce: higher UID initiates.
+            // To avoid both initiating, enforce higher UID initiates.
             if (user.uid > otherUid) {
               const peer = createPeer(otherUid, currentLobby[otherUid]);
               peersRef.current[otherUid] = { peer, name: currentLobby[otherUid].name, photoURL: currentLobby[otherUid].photoURL };
-              updatePeersState();
             }
           }
         });
+        updatePeersState();
       });
 
       // Disconnect on refresh
@@ -248,6 +258,7 @@ export default function VoiceRoom({ user, db }) {
                     ref={el => { 
                       if (el && p.stream && el.srcObject !== p.stream) {
                         el.srcObject = p.stream;
+                        try { el.play().catch(()=>{}); } catch(_) {}
                       } 
                     }} 
                     autoPlay 
