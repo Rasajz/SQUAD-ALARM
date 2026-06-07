@@ -1,33 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-
-// Fallback for window.storage if running outside Claude Artifacts sandbox
-if (typeof window !== "undefined" && !window.storage) {
-  window.storage = {
-    _isMock: true,
-    get: async (key, isShared) => {
-      try {
-        const val = window.localStorage.getItem(key);
-        return val ? { value: val } : null;
-      } catch {
-        return null;
-      }
-    },
-    set: async (key, value, isShared) => {
-      try {
-        window.localStorage.setItem(key, value);
-      } catch (e) {
-        console.error("Failed to write to localStorage", e);
-      }
-    },
-    delete: async (key) => {
-      try {
-        window.localStorage.removeItem(key);
-      } catch (e) {
-        console.error("Failed to delete from localStorage", e);
-      }
-    }
-  };
-}
+import { db, auth } from "./firebase";
+import { ref, onValue, set, push, off, remove } from "firebase/database";
+import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "firebase/auth";
+import { messaging } from "./firebase";
+import { getToken } from "firebase/messaging";
+import VoiceRoom from "./VoiceRoom";
+import DirectMessages from "./DirectMessages";
 
 /* ══════════════════════════════════════════════════
    AUDIO — real wailing siren via LFO modulation
@@ -42,51 +20,31 @@ function playSiren() {
   try {
     const ctx = getCtx();
     const now = ctx.currentTime;
-    const DUR = 3.2;
-
-    const osc  = ctx.createOscillator();   // main wail
-    const osc2 = ctx.createOscillator();   // harmony layer
-    const lfo  = ctx.createOscillator();   // frequency sweeper
+    // Set duration to exactly 2.0 seconds as requested
+    const DUR = 2.0;
+    const osc  = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    const lfo  = ctx.createOscillator();
     const lfoG = ctx.createGain();
     const g1   = ctx.createGain();
     const g2   = ctx.createGain();
     const mix  = ctx.createGain();
-
     lfo.type = "sine"; lfo.frequency.value = 1.4;
     lfoG.gain.value = 280;
     lfo.connect(lfoG);
     lfoG.connect(osc.frequency);
     lfoG.connect(osc2.frequency);
-
     osc.type  = "sawtooth"; osc.frequency.value  = 820;
-    osc2.type = "square";   osc2.frequency.value = 830;  // slight detune = beating
-
+    osc2.type = "square";   osc2.frequency.value = 830;
     g2.gain.value = 0.28;
-
     osc.connect(g1); osc2.connect(g2);
     g1.connect(mix); g2.connect(mix);
     mix.connect(ctx.destination);
-
-    mix.gain.setValueAtTime(0,   now);
+    mix.gain.setValueAtTime(0, now);
     mix.gain.linearRampToValueAtTime(0.45, now + 0.06);
     mix.gain.setValueAtTime(0.45, now + DUR - 0.18);
-    mix.gain.linearRampToValueAtTime(0,   now + DUR);
-
+    mix.gain.linearRampToValueAtTime(0, now + DUR);
     [lfo, osc, osc2].forEach(n => { n.start(now); n.stop(now + DUR); });
-  } catch (_) {}
-}
-function beep() {
-  try {
-    const ctx = getCtx();
-    [[1047,0,.13],[1047,.18,.13],[1047,.36,.13],[784,.56,.32]].forEach(([f,t,d]) => {
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.connect(g); g.connect(ctx.destination);
-      o.type = "square"; o.frequency.value = f;
-      const s = ctx.currentTime + t;
-      g.gain.setValueAtTime(0,s); g.gain.linearRampToValueAtTime(.38,s+.012);
-      g.gain.setValueAtTime(.38,s+d-.018); g.gain.linearRampToValueAtTime(0,s+d);
-      o.start(s); o.stop(s+d+.02);
-    });
   } catch (_) {}
 }
 function buzz() { try { navigator.vibrate?.([300,80,300,80,500]); } catch (_) {} }
@@ -129,7 +87,23 @@ const COLORS = ["#e53935","#8e24aa","#1565c0","#00838f","#2e7d32","#e65100","#6a
 const avatarColor = name => COLORS[name.toUpperCase().charCodeAt(0) % COLORS.length];
 const initials    = name => name.trim().split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
 
-function Avatar({ name, size = 36 }) {
+function Avatar({ name, photo, size = 36 }) {
+  if (photo) {
+    return (
+      <img
+        src={photo}
+        alt={name}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: "50%",
+          objectFit: "cover",
+          flexShrink: 0,
+          border: "1px solid rgba(255, 255, 255, 0.1)"
+        }}
+      />
+    );
+  }
   return (
     <div style={{
       width:size, height:size, borderRadius:"50%", background:avatarColor(name),
@@ -143,22 +117,26 @@ function Avatar({ name, size = 36 }) {
 }
 
 /* ══════════════════════════════════════════════════
-   STORAGE
+   PHOTO COMPRESSION
 ══════════════════════════════════════════════════ */
-const SK = "squad:app:v5";   // shared state
-const UK = "squad:user:v2";  // personal user
-
-const DEF = { alarm:null, notes:[], history:[] };
-
-async function readShared() {
-  try { const r = await window.storage.get(SK,true); return r?.value ? JSON.parse(r.value) : {...DEF}; }
-  catch { return {...DEF}; }
-}
-async function writeShared(patch) {
-  const cur = await readShared();
-  const next = { ...cur, ...patch };
-  await window.storage.set(SK, JSON.stringify(next), true);
-  return next;
+function compressImage(file, maxWidth = 480, quality = 0.65) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const ratio = Math.min(maxWidth / img.width, 1);
+        canvas.width = img.width * ratio;
+        canvas.height = img.height * ratio;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 /* ══════════════════════════════════════════════════
@@ -224,46 +202,51 @@ html,body{height:100%;background:#07090d;overflow:hidden;touch-action:manipulati
 .btn-emoji{font-size:36px;line-height:1;}
 .btn-word{font-family:'Bebas Neue',sans-serif;font-size:44px;color:#fff;letter-spacing:.1em;line-height:1;}
 .btn-sub{font-size:11px;color:rgba(255,255,255,.6);letter-spacing:.04em;font-weight:500;margin-top:2px;}
-.alarm-hint{font-family:'JetBrains Mono',monospace;font-size:9px;color:#1e293b;text-align:center;letter-spacing:.08em;max-width:300px;}
+.alarm-hint{font-family:'JetBrains Mono',monospace;font-size:9px;color:#334155;text-align:center;letter-spacing:.08em;max-width:300px;}
 
 .section-hd{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 8px;}
 .section-title{font-size:11px;font-weight:700;color:#334155;letter-spacing:.12em;text-transform:uppercase;}
 .section-link{font-size:11px;font-weight:600;color:#3b82f6;cursor:pointer;}
-
 .recent-list{display:flex;flex-direction:column;gap:0;padding:0 14px 16px;}
 
-/* ── ALARM HISTORY CARD ────────────────────── */
+/* ── ALARM HISTORY CARD ─────────────────── */
 .alarm-entry{display:flex;align-items:center;gap:12px;padding:11px 14px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.15);border-radius:14px;margin-bottom:7px;}
 .ae-icon{font-size:22px;flex-shrink:0;}
 .ae-body{flex:1;min-width:0;}
 .ae-who{font-size:14px;font-weight:700;color:#fca5a5;}
 .ae-when{font-family:'JetBrains Mono',monospace;font-size:10px;color:#475569;margin-top:1px;}
-.ae-full{font-family:'JetBrains Mono',monospace;font-size:9px;color:#334155;margin-top:2px;}
 
-/* ── NOTES ─────────────────────────────────── */
-.notes-wrap{display:flex;flex-direction:column;height:100%;overflow:hidden;}
-.note-input-zone{padding:12px 14px 8px;border-bottom:1px solid rgba(255,255,255,.06);flex-shrink:0;}
-.note-textarea{width:100%;padding:12px 14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:14px;color:#e2e8f0;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;outline:none;resize:none;min-height:52px;max-height:100px;transition:border-color .15s;line-height:1.5;}
-.note-textarea:focus{border-color:rgba(59,130,246,.4);}
-.note-textarea::placeholder{color:#1e293b;}
-.note-row{display:flex;justify-content:flex-end;margin-top:8px;gap:8px;}
-.post-btn{padding:9px 20px;background:#1d4ed8;border:none;border-radius:11px;color:#fff;font-family:'DM Sans',sans-serif;font-weight:700;font-size:13px;cursor:pointer;transition:all .15s;letter-spacing:.03em;}
-.post-btn:disabled{opacity:.35;cursor:default;}
-.post-btn:not(:disabled):active{transform:scale(.96);background:#2563eb;}
-.notes-list{flex:1;overflow-y:auto;padding:10px 14px;display:flex;flex-direction:column;gap:8px;}
-.note-card{display:flex;gap:11px;padding:12px 14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:16px;animation:slideUp .22s ease-out;}
+/* ── MESSAGES TAB ───────────────────────── */
+.msgs-wrap{display:flex;flex-direction:column;height:100%;overflow:hidden;}
+.msg-input-zone{padding:10px 14px 10px;border-top:1px solid rgba(255,255,255,.06);flex-shrink:0;background:#07090d;}
+.msg-photo-preview{position:relative;display:inline-block;margin-bottom:8px;}
+.msg-photo-preview img{width:80px;height:80px;object-fit:cover;border-radius:10px;border:1px solid rgba(255,255,255,.15);}
+.msg-remove-photo{position:absolute;top:-6px;right:-6px;width:20px;height:20px;background:#ef4444;border:none;border-radius:50%;color:#fff;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;}
+.msg-input-row{display:flex;align-items:flex-end;gap:8px;}
+.msg-textarea{flex:1;padding:10px 13px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:14px;color:#e2e8f0;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;outline:none;resize:none;min-height:42px;max-height:90px;transition:border-color .15s;line-height:1.5;}
+.msg-textarea:focus{border-color:rgba(59,130,246,.4);}
+.msg-textarea::placeholder{color:#334155;}
+.msg-photo-btn{width:42px;height:42px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:12px;color:#64748b;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;}
+.msg-photo-btn:active,.msg-photo-btn:hover{background:rgba(255,255,255,.1);color:#94a3b8;}
+.msg-send-btn{width:42px;height:42px;background:#1d4ed8;border:none;border-radius:12px;color:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;}
+.msg-send-btn:disabled{opacity:.35;cursor:default;}
+.msg-send-btn:not(:disabled):active{transform:scale(.93);background:#2563eb;}
+.msgs-list{flex:1;overflow-y:auto;padding:10px 14px;display:flex;flex-direction:column;gap:10px;}
+.msg-card{display:flex;gap:10px;padding:10px 12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:16px;animation:slideUp .22s ease-out;}
 @keyframes slideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-.nc-right{flex:1;min-width:0;}
-.nc-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:4px;}
-.nc-name{font-size:13px;font-weight:700;color:#e2e8f0;}
-.nc-time{font-family:'JetBrains Mono',monospace;font-size:9px;color:#334155;flex-shrink:0;}
-.nc-date{font-family:'JetBrains Mono',monospace;font-size:10px;color:#475569;margin-bottom:4px;}
-.nc-text{font-size:14px;font-weight:500;color:#cbd5e1;line-height:1.5;word-break:break-word;}
+.mc-right{flex:1;min-width:0;}
+.mc-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:3px;}
+.mc-name{font-size:13px;font-weight:700;color:#e2e8f0;}
+.mc-time{font-family:'JetBrains Mono',monospace;font-size:9px;color:#334155;flex-shrink:0;}
+.mc-text{font-size:14px;font-weight:500;color:#cbd5e1;line-height:1.5;word-break:break-word;}
+.mc-img{width:100%;max-width:260px;border-radius:12px;margin-top:7px;cursor:pointer;border:1px solid rgba(255,255,255,.1);}
+.img-fullscreen{position:fixed;inset:0;z-index:998;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:20px;}
+.img-fullscreen img{max-width:100%;max-height:100%;border-radius:12px;}
 .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px;gap:8px;flex:1;}
 .empty-icon{font-size:36px;opacity:.25;}
 .empty-label{font-family:'JetBrains Mono',monospace;font-size:10px;color:#1e293b;letter-spacing:.15em;text-align:center;}
 
-/* ── LOG TAB ─────────────────────────────────── */
+/* ── LOG TAB ─────────────────────────────── */
 .log-wrap{padding:10px 14px;display:flex;flex-direction:column;gap:7px;}
 .log-entry{display:flex;align-items:flex-start;gap:12px;padding:13px 14px;background:rgba(239,68,68,.05);border:1px solid rgba(239,68,68,.12);border-radius:16px;}
 .le-num{font-family:'JetBrains Mono',monospace;font-size:10px;color:#334155;width:20px;flex-shrink:0;padding-top:2px;}
@@ -272,7 +255,7 @@ html,body{height:100%;background:#07090d;overflow:hidden;touch-action:manipulati
 .le-when-rel{font-size:12px;font-weight:600;color:#ef4444;}
 .le-full{font-family:'JetBrains Mono',monospace;font-size:10px;color:#475569;margin-top:3px;line-height:1.5;}
 
-/* ── SETTINGS TAB ────────────────────────────── */
+/* ── SETTINGS TAB ────────────────────────── */
 .settings{padding:14px;}
 .setting-section{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:18px;overflow:hidden;margin-bottom:12px;}
 .setting-row{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.05);}
@@ -287,7 +270,7 @@ html,body{height:100%;background:#07090d;overflow:hidden;touch-action:manipulati
 .info-line{font-size:12px;font-weight:500;color:#64748b;line-height:1.7;}
 .info-line b{color:#94a3b8;font-weight:700;}
 
-/* ── BOTTOM NAV ──────────────────────────────── */
+/* ── BOTTOM NAV ──────────────────────────── */
 .bnav{display:flex;background:rgba(10,12,18,.95);border-top:1px solid rgba(255,255,255,.08);flex-shrink:0;padding-bottom:env(safe-area-inset-bottom);}
 .bnav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 4px 8px;cursor:pointer;border:none;background:transparent;color:#334155;transition:color .15s;gap:3px;}
 .bnav-btn.active{color:#e2e8f0;}
@@ -296,7 +279,7 @@ html,body{height:100%;background:#07090d;overflow:hidden;touch-action:manipulati
 .bnav-badge{position:relative;}
 .badge-dot{position:absolute;top:-2px;right:-4px;width:7px;height:7px;border-radius:50%;background:#ef4444;border:1.5px solid #07090d;}
 
-/* ── SETUP SCREEN ────────────────────────────── */
+/* ── SETUP SCREEN ────────────────────────── */
 .setup-bg{height:100dvh;background:#07090d;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;font-family:'DM Sans',sans-serif;}
 .setup-card{width:100%;max-width:360px;background:#0f1520;border:1px solid rgba(255,255,255,.09);border-radius:26px;padding:32px 24px;display:flex;flex-direction:column;align-items:center;gap:12px;box-shadow:0 32px 80px rgba(0,0,0,.7);}
 .setup-logo{font-size:48px;}
@@ -310,6 +293,9 @@ html,body{height:100%;background:#07090d;overflow:hidden;touch-action:manipulati
 .join-btn{width:100%;padding:16px;background:linear-gradient(135deg,#dc2626,#991b1b);border:none;border-radius:14px;color:#fff;font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:.15em;cursor:pointer;box-shadow:0 0 34px rgba(220,38,38,.38);transition:all .18s;}
 .join-btn:hover{transform:translateY(-1px);box-shadow:0 0 50px rgba(220,38,38,.55);}
 .join-btn:active{transform:scale(.98);}
+.google-btn{width:100%;padding:15px;background:#fff;border:none;border-radius:14px;color:#0f172a;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px;box-shadow:0 4px 18px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.2);transition:all .18s;}
+.google-btn:hover{background:#f1f5f9;transform:translateY(-1px);box-shadow:0 6px 22px rgba(0,0,0,.35);}
+.google-btn:active{transform:scale(.98);background:#e2e8f0;}
 .setup-warn{font-family:'JetBrains Mono',monospace;font-size:9px;color:#334155;text-align:center;line-height:1.7;max-width:290px;}
 .how-works{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:12px 14px;width:100%;}
 .hw-title{font-size:11px;font-weight:700;color:#334155;letter-spacing:.1em;margin-bottom:8px;}
@@ -317,7 +303,7 @@ html,body{height:100%;background:#07090d;overflow:hidden;touch-action:manipulati
 .hw-num{width:18px;height:18px;border-radius:50%;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#f87171;flex-shrink:0;margin-top:1px;}
 .hw-text{font-size:11px;color:#475569;line-height:1.5;}
 
-/* ── LOADING ─────────────────────────────────── */
+/* ── LOADING ─────────────────────────────── */
 .loading{height:100dvh;background:#07090d;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;font-family:'JetBrains Mono',monospace;}
 .spin{font-size:40px;animation:spin 1s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -327,109 +313,222 @@ html,body{height:100%;background:#07090d;overflow:hidden;touch-action:manipulati
    APP
 ══════════════════════════════════════════════════ */
 export default function SquadAlarm() {
-  const [phase,   setPhase]   = useState("loading");
-  const [user,    setUser]    = useState(null);    // {name, joinedAt}
-  const [nameIn,  setNameIn]  = useState("");
-  const [tab,     setTab]     = useState("home");
+  const [phase,    setPhase]    = useState("loading");
+  const [user,     setUser]     = useState(null);
+  const [tab,      setTab]      = useState("home");
 
-  const [alarm,   setAlarm]   = useState(null);
-  const [notes,   setNotes]   = useState([]);
-  const [history, setHistory] = useState([]);
-  const [overlay, setOverlay] = useState(false);
-  const [newAlarm,setNewAlarm]= useState(false);
+  const [alarm,    setAlarm]    = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [history,  setHistory]  = useState([]);
+  const [overlay,  setOverlay]  = useState(false);
+  const [newAlarm, setNewAlarm] = useState(false);
+  const [newMsg,   setNewMsg]   = useState(false);
+  const [hostUid,  setHostUid]  = useState(null);
+  const [activeCallId, setActiveCallId] = useState(null);
 
-  const [firing,  setFiring]  = useState(false);
-  const [noteIn,  setNoteIn]  = useState("");
-  const [posting, setPosting] = useState(false);
+  const isHost = user?.uid === hostUid;
 
-  const lastId  = useRef("");
-  const pollRef = useRef(null);
-  const sLoop   = useRef(null);
+  const [firing,   setFiring]   = useState(false);
+  const [msgText,  setMsgText]  = useState("");
+  const [msgPhoto, setMsgPhoto] = useState(null);
+  const [posting,  setPosting]  = useState(false);
+  const [fullImg,  setFullImg]  = useState(null);
 
-  /* ── Init ─────────────────────────────────── */
+  const lastId    = useRef("");
+  const sLoop     = useRef(null);
+  const fileInput = useRef(null);
+  const msgsEnd   = useRef(null);
+
+  /* ── Init & Auth Listener ─────────────────── */
   useEffect(() => {
-    (async () => {
-      try {
-        const r = await window.storage.get(UK);
-        if (r?.value) { setUser(JSON.parse(r.value)); setPhase("main"); }
-        else setPhase("setup");
-      } catch { setPhase("setup"); }
-    })();
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        const userData = {
+          uid: firebaseUser.uid,
+          name: firebaseUser.displayName || "Teammate",
+          email: firebaseUser.email,
+          photoURL: firebaseUser.photoURL,
+          joinedAt: firebaseUser.metadata.creationTime ? new Date(firebaseUser.metadata.creationTime).getTime() : Date.now()
+        };
+
+        // Attempt to request push notification permissions and get FCM token
+        try {
+          if (messaging) {
+            const permission = await Notification.requestPermission();
+            if (permission === "granted") {
+              const currentToken = await getToken(messaging);
+              if (currentToken) {
+                userData.fcmToken = currentToken;
+                await set(ref(db, "users/" + firebaseUser.uid), userData);
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("FCM Token fetch failed:", err);
+        }
+
+        setUser(userData);
+        setPhase("main");
+      } else {
+        setUser(null);
+        setPhase("setup");
+      }
+    });
+    return unsubscribe;
   }, []);
 
-  /* ── Poll ─────────────────────────────────── */
+  /* ── Firebase Real-time Listeners ────────── */
   useEffect(() => {
     if (phase !== "main") return;
 
-    const tick = async () => {
-      try {
-        const st = await readShared();
-        setNotes(st.notes   || []);
-        setHistory(st.history || []);
-        if (st.alarm && st.alarm.id !== lastId.current) {
-          lastId.current = st.alarm.id;
-          setAlarm(st.alarm);
+    let isInitialLoad = true;
+
+    // ── alarm listener
+    const alarmRef = ref(db, "alarm");
+    onValue(alarmRef, (snap) => {
+      const a = snap.val();
+      setAlarm(a);
+      if (a && a.id !== lastId.current) {
+        lastId.current = a.id;
+        if (!isInitialLoad) {
           setOverlay(true);
           setNewAlarm(true);
           playSiren(); buzz();
-          clearInterval(sLoop.current); let c = 0;
-          sLoop.current = setInterval(() => {
-            playSiren(); buzz();
-            if (++c >= 3) clearInterval(sLoop.current);
-          }, 3400);
+          if ("Notification" in window && Notification.permission === "granted") {
+            try {
+              new Notification("🚨 SQUAD ALARM", {
+                body: `${a.by} just triggered the emergency alarm!`,
+                icon: "/icon-192.png",
+                vibrate: [200, 100, 200, 100, 500],
+                tag: "squad-alarm",
+                requireInteraction: true
+              });
+            } catch (e) {
+              console.warn("Notification failed:", e);
+            }
+          }
         }
-      } catch (_) {}
-    };
+      }
+      isInitialLoad = false;
+    });
 
-    tick();
-    pollRef.current = setInterval(tick, 1800);
-    return () => { clearInterval(pollRef.current); clearInterval(sLoop.current); };
+    // ── host listener
+    const hostRef = ref(db, "host");
+    onValue(hostRef, (snap) => setHostUid(snap.val()));
+
+    // ── history listener
+    const histRef = ref(db, "history");
+    onValue(histRef, (snap) => {
+      const data = snap.val();
+      if (data) {
+        const arr = Object.values(data).sort((a, b) => b.ts - a.ts);
+        setHistory(arr);
+      } else setHistory([]);
+    });
+
+    // ── messages listener
+    let isMsgInitialLoad = true;
+    const msgRef = ref(db, "messages");
+    onValue(msgRef, (snap) => {
+      const data = snap.val();
+      if (data) {
+        const arr = Object.values(data).sort((a, b) => b.ts - a.ts);
+        setMessages(arr);
+        setNewMsg(true);
+        if (!isMsgInitialLoad && arr.length > 0 && arr[0].by !== user.name) {
+          if ("Notification" in window && Notification.permission === "granted") {
+            try {
+              new Notification("New Message", {
+                body: `${arr[0].by}: ${arr[0].text || 'Sent an image'}`,
+                icon: "/icon-192.png",
+                tag: "squad-message"
+              });
+            } catch (e) {
+              console.warn("Notification failed:", e);
+            }
+          }
+        }
+      } else setMessages([]);
+      isMsgInitialLoad = false;
+    });
+
+    // ── user calls listener
+    const myCallRef = ref(db, `user_calls/${user.uid}`);
+    onValue(myCallRef, snap => {
+      setActiveCallId(snap.val() || null);
+    });
+
+    return () => {
+      off(alarmRef);
+      off(histRef);
+      off(msgRef);
+      off(myCallRef);
+      clearInterval(sLoop.current);
+    };
   }, [phase]);
 
   /* ── Handlers ─────────────────────────────── */
-  const join = async () => {
-    const n = nameIn.trim(); if (!n) return;
-    getCtx(); // warm up audio
-    const u = { name: n, joinedAt: Date.now() };
-    try { await window.storage.set(UK, JSON.stringify(u)); } catch (_) {}
-    setUser(u); setPhase("main");
+  const loginWithGoogle = async () => {
+    try {
+      getCtx();
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (err) {
+      console.error(err);
+      alert("Sign-in failed: " + err.message);
+    }
   };
 
   const triggerAlarm = useCallback(async () => {
-    if (firing) return;
+    if (firing || !user) return;
     setFiring(true);
-    const a = { id: String(Date.now()), by: user.name, ts: Date.now() };
+    const a = {
+      id: String(Date.now()),
+      by: user.name,
+      byPhoto: user.photoURL || null,
+      ts: Date.now()
+    };
     try {
-      const st = await readShared();
-      const hist = [a, ...(st.history||[])].slice(0,30);
-      await writeShared({ alarm: a, history: hist });
+      await set(ref(db, "alarm"), a);
+      await push(ref(db, "history"), a);
       lastId.current = a.id;
-      setAlarm(a); setHistory(hist);
       setOverlay(true); setNewAlarm(true);
       playSiren(); buzz();
-    } catch (_) { alert("Could not send alarm. Check your connection."); }
+    } catch { alert("Could not send alarm. Check your connection."); }
     setFiring(false);
   }, [firing, user]);
 
-  const postNote = useCallback(async () => {
-    const t = noteIn.trim(); if (!t || posting) return;
+  const postMessage = useCallback(async () => {
+    if ((!msgText.trim() && !msgPhoto) || posting || !user) return;
     setPosting(true);
-    const n = { id: String(Date.now()), by: user.name, text: t, ts: Date.now() };
+    const m = {
+      id: String(Date.now()),
+      by: user.name,
+      byPhoto: user.photoURL || null,
+      text: msgText.trim() || null,
+      photo: msgPhoto || null,
+      ts: Date.now()
+    };
     try {
-      const st = await readShared();
-      const updated = [n, ...(st.notes||[])].slice(0,50);
-      await writeShared({ notes: updated });
-      setNotes(updated); setNoteIn("");
-    } catch (_) { alert("Could not post note."); }
+      await push(ref(db, "messages"), m);
+      setMsgText(""); setMsgPhoto(null);
+    } catch { alert("Could not send message."); }
     setPosting(false);
-  }, [noteIn, posting, user]);
+  }, [msgText, msgPhoto, posting, user]);
+
+  const handlePhotoSelect = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const compressed = await compressImage(file);
+    setMsgPhoto(compressed);
+    e.target.value = "";
+  };
 
   const dismiss = () => { setOverlay(false); clearInterval(sLoop.current); };
 
   /* ── Sub-renders ──────────────────────────── */
   const renderHome = () => (
     <div className="home">
-      {/* Status */}
       <div className="status-card">
         <div className="sc-left">
           <div className="sc-label">Team Status</div>
@@ -442,7 +541,6 @@ export default function SquadAlarm() {
         </div>
       </div>
 
-      {/* Big alarm button */}
       <div className="alarm-zone">
         <button className={`alarm-btn${firing?" quiet":""}`} onClick={triggerAlarm} disabled={firing}>
           <div className="btn-shine"/>
@@ -452,26 +550,27 @@ export default function SquadAlarm() {
             <div className="btn-sub">{firing?"Alerting your team…":"Tap to alert all team members"}</div>
           </div>
         </button>
-        <div className="alarm-hint">Everyone with this app gets siren + vibration instantly</div>
+        <div className="alarm-hint">⚡ Real-time • Everyone gets siren + vibration instantly</div>
       </div>
 
-      {/* Recent notes */}
+      {/* Recent messages */}
       <div className="section-hd">
-        <span className="section-title">Recent Notes</span>
-        <span className="section-link" onClick={()=>setTab("notes")}>See all →</span>
+        <span className="section-title">Recent Messages</span>
+        <span className="section-link" onClick={()=>setTab("messages")}>See all →</span>
       </div>
       <div className="recent-list">
-        {notes.length === 0
-          ? <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:"#1e293b",padding:"0 2px"}}>No notes yet. Post one in the Notes tab.</div>
-          : notes.slice(0,3).map(n => (
-            <div key={n.id} className="note-card" style={{marginBottom:0}}>
-              <Avatar name={n.by}/>
-              <div className="nc-right">
-                <div className="nc-top">
-                  <span className="nc-name">{n.by}</span>
-                  <span className="nc-time">{fmtRelative(n.ts)}</span>
+        {messages.length === 0
+          ? <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:"#1e293b",padding:"0 2px"}}>No messages yet. Send one in the Messages tab.</div>
+          : messages.slice(0,3).map(m => (
+            <div key={m.id} className="msg-card" style={{marginBottom:0}}>
+              <Avatar name={m.by} photo={m.byPhoto}/>
+              <div className="mc-right">
+                <div className="mc-top">
+                  <span className="mc-name">{m.by}</span>
+                  <span className="mc-time">{fmtRelative(m.ts)}</span>
                 </div>
-                <div className="nc-text">{n.text}</div>
+                {m.text && <div className="mc-text">{m.text}</div>}
+                {m.photo && <img src={m.photo} className="mc-img" alt="attachment" onClick={()=>setFullImg(m.photo)}/>}
               </div>
             </div>
           ))
@@ -487,7 +586,7 @@ export default function SquadAlarm() {
         <div className="recent-list">
           {history.slice(0,2).map(e => (
             <div key={e.id} className="alarm-entry">
-              <div className="ae-icon">🚨</div>
+              <Avatar name={e.by} photo={e.byPhoto} size={28} />
               <div className="ae-body">
                 <div className="ae-who">{e.by}</div>
                 <div className="ae-when">{fmtDate(e.ts)}</div>
@@ -500,43 +599,67 @@ export default function SquadAlarm() {
     </div>
   );
 
-  const renderNotes = () => (
-    <div className="notes-wrap" style={{height:"100%"}}>
-      <div className="note-input-zone">
-        <textarea
-          className="note-textarea"
-          placeholder={`Write a note for the team, ${user?.name?.split(" ")[0]}…`}
-          value={noteIn}
-          onChange={e=>setNoteIn(e.target.value)}
-          onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&(e.preventDefault(),postNote())}
-          rows={2}
-        />
-        <div className="note-row">
-          <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,color:"#1e293b",letterSpacing:".08em"}}>
-            ENTER to post · SHIFT+ENTER for new line
-          </div>
-          <button className="post-btn" onClick={postNote} disabled={!noteIn.trim()||posting}>
-            {posting?"…":"POST"}
-          </button>
-        </div>
-      </div>
-      <div className="notes-list">
-        {notes.length === 0
-          ? <div className="empty"><div className="empty-icon">📋</div><div className="empty-label">NO NOTES YET<br/>POST SOMETHING FOR YOUR TEAM</div></div>
-          : notes.map(n => (
-            <div key={n.id} className="note-card">
-              <Avatar name={n.by}/>
-              <div className="nc-right">
-                <div className="nc-top">
-                  <span className="nc-name">{n.by}</span>
-                  <span className="nc-time">{fmtRelative(n.ts)}</span>
+  const renderMessages = () => (
+    <div className="msgs-wrap">
+      {/* Messages list - newest at top */}
+      <div className="msgs-list">
+        {messages.length === 0
+          ? <div className="empty">
+              <div className="empty-icon">💬</div>
+              <div className="empty-label">NO MESSAGES YET<br/>SAY SOMETHING TO YOUR TEAM</div>
+            </div>
+          : messages.map(m => (
+            <div key={m.id} className="msg-card">
+              <Avatar name={m.by} photo={m.byPhoto}/>
+              <div className="mc-right">
+                <div className="mc-top">
+                  <span className="mc-name">{m.by}</span>
+                  <span className="mc-time">{fmtRelative(m.ts)}</span>
                 </div>
-                <div className="nc-date">{fmtDate(n.ts)}</div>
-                <div className="nc-text">{n.text}</div>
+                {m.text && <div className="mc-text">{m.text}</div>}
+                {m.photo && <img src={m.photo} className="mc-img" alt="attachment" onClick={()=>setFullImg(m.photo)}/>}
               </div>
             </div>
           ))
         }
+      </div>
+
+      {/* Input area */}
+      <div className="msg-input-zone">
+        {msgPhoto && (
+          <div className="msg-photo-preview">
+            <img src={msgPhoto} alt="preview"/>
+            <button className="msg-remove-photo" onClick={()=>setMsgPhoto(null)}>✕</button>
+          </div>
+        )}
+        <div className="msg-input-row">
+          <button className="msg-photo-btn" onClick={()=>fileInput.current?.click()} title="Attach photo">
+            📷
+          </button>
+          <input
+            ref={fileInput}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            style={{display:"none"}}
+            onChange={handlePhotoSelect}
+          />
+          <textarea
+            className="msg-textarea"
+            placeholder={`Message your team, ${user?.name?.split(" ")[0]}…`}
+            value={msgText}
+            onChange={e=>setMsgText(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&(e.preventDefault(),postMessage())}
+            rows={1}
+          />
+          <button
+            className="msg-send-btn"
+            onClick={postMessage}
+            disabled={(!msgText.trim()&&!msgPhoto)||posting}
+          >
+            {posting ? "…" : "➤"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -544,13 +667,16 @@ export default function SquadAlarm() {
   const renderLog = () => (
     <div className="log-wrap">
       {history.length === 0
-        ? <div className="empty" style={{paddingTop:60}}><div className="empty-icon">🚨</div><div className="empty-label">NO ALARMS TRIGGERED YET</div></div>
+        ? <div className="empty" style={{paddingTop:60}}>
+            <div className="empty-icon">🚨</div>
+            <div className="empty-label">NO ALARMS TRIGGERED YET</div>
+          </div>
         : history.map((e,i) => (
           <div key={e.id} className="log-entry">
             <div className="le-num">#{i+1}</div>
+            <Avatar name={e.by} photo={e.byPhoto} size={28} />
             <div className="le-body">
               <div className="le-who">
-                <span>🚨</span>
                 <span>{e.by}</span>
                 <span className="le-when-rel">{fmtRelative(e.ts)}</span>
               </div>
@@ -567,17 +693,19 @@ export default function SquadAlarm() {
       {user && (
         <div className="setting-section" style={{marginBottom:12}}>
           <div style={{padding:"16px 16px 12px",display:"flex",alignItems:"center",gap:12,borderBottom:"1px solid rgba(255,255,255,.05)"}}>
-            <Avatar name={user.name} size={44}/>
+            <Avatar name={user.name} photo={user.photoURL} size={44}/>
             <div>
-              <div style={{fontSize:17,fontWeight:800,color:"#f1f5f9"}}>{user.name}</div>
+              <div style={{fontSize:17,fontWeight:800,color:"#f1f5f9"}}>
+                {user.name} {isHost && <span style={{fontSize:14}} title="Host">👑</span>}
+              </div>
               <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:"#475569"}}>
                 Member since {new Date(user.joinedAt).toLocaleDateString([],{month:"short",day:"numeric",year:"numeric"})}
               </div>
             </div>
           </div>
           <div className="setting-row">
-            <div className="sr-left"><div className="sr-label">Change Name</div><div className="sr-sub">Appears on alarms and notes</div></div>
-            <button className="test-btn" onClick={()=>{ window.storage.delete(UK).catch(()=>{}); setPhase("setup"); }}>Edit</button>
+            <div className="sr-left"><div className="sr-label">Sign Out</div><div className="sr-sub">Sign out of your Google account</div></div>
+            <button className="test-btn" onClick={async ()=>{if(confirm("Are you sure you want to sign out?"))await signOut(auth);}}>Sign Out</button>
           </div>
         </div>
       )}
@@ -591,40 +719,65 @@ export default function SquadAlarm() {
           <div className="sr-left"><div className="sr-label">📳 Vibration</div><div className="sr-sub">Works on Android · iOS limited</div></div>
           <button className="test-btn" onClick={()=>buzz()}>Test</button>
         </div>
-        <div className="setting-row">
-          <div className="sr-left"><div className="sr-label">🔔 Polling</div><div className="sr-sub">Checks for alarms every 1.8s</div></div>
-          <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:"#22c55e"}}>● ACTIVE</span>
-        </div>
+          <div className="setting-row">
+            <div className="sr-left"><div className="sr-label">🔔 Notifications</div><div className="sr-sub">Get alerts when app is open in background</div></div>
+            <button className="test-btn" onClick={async()=>{
+              if ("Notification" in window) {
+                const perm = await Notification.requestPermission();
+                alert(perm === "granted" ? "Notifications Enabled!" : "Notifications Blocked.");
+              } else alert("Browser does not support notifications.");
+            }}>Enable</button>
+          </div>
+          <div className="setting-row">
+            <div className="sr-left"><div className="sr-label">⚡ Sync Mode</div><div className="sr-sub">Firebase Real-time Database</div></div>
+            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:"#22c55e"}}>● LIVE</span>
+          </div>
       </div>
 
       <div className="info-box">
         <div className="info-title">📡 HOW IT WORKS</div>
-        <div className="info-line">This app uses shared cloud storage to sync alarms and notes across all teammates in real time. <b>No Bluetooth. No range limit.</b> Works anywhere with internet.</div>
+        <div className="info-line">This app is connected to <b>Google Firebase</b> in real-time. When anyone presses ALARM, <b>every device gets it instantly</b> — no matter where in the world they are.</div>
       </div>
 
       <div className="setting-section">
         <div className="setting-row">
-          <div className="sr-left"><div className="sr-label">Share with Team</div><div className="sr-sub">Multiplayer Cloud Sync Required</div></div>
+          <div className="sr-left"><div className="sr-label">👑 Host Controls</div><div className="sr-sub">{isHost ? "You are the Host" : "Standard User"}</div></div>
+          {!hostUid && !isHost && <button className="test-btn" style={{color:"#f59e0b",borderColor:"rgba(245,158,11,.2)"}} onClick={async()=>{
+            const pwd = prompt("Enter secret password to claim Host role:");
+            if(pwd === "4549") {
+              await set(ref(db, "host"), user.uid);
+              alert("You are now the Host!");
+            } else if(pwd) alert("Incorrect password.");
+          }}>Claim Host</button>}
+          {isHost && <button className="test-btn" style={{color:"#ef4444",borderColor:"rgba(239,68,68,.2)"}} onClick={async()=>{
+            if(confirm("Relinquish Host role?")) await remove(ref(db, "host"));
+          }}>Relinquish</button>}
+        </div>
+        <div className="setting-row">
+          <div className="sr-left"><div className="sr-label">Share with Team</div><div className="sr-sub">Anyone with the link can join</div></div>
         </div>
         <div style={{padding:"0 16px 14px"}}>
-          <div style={{background:"rgba(245,158,11,.05)",border:"1px solid rgba(245,158,11,.2)",borderRadius:11,padding:"10px 14px",fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:"#fbbf24",lineHeight:1.8}}>
-            ⚠️ Currently running in LOCAL demo mode (Local Storage).<br/>
-            Alarms and notes will NOT sync between different devices.<br/>
-            To enable team sync, connect the app to a Firebase Database or a custom WebSocket server.
+          <div style={{background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.08)",borderRadius:11,padding:"10px 14px",fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:"#475569",lineHeight:1.8}}>
+            1. Copy the URL of this page<br/>
+            2. Send it to each teammate<br/>
+            3. They open it and log in with Google<br/>
+            4. You're all connected instantly
           </div>
         </div>
       </div>
 
-      <div className="setting-section" style={{marginBottom:0}}>
-        <div className="setting-row">
-          <div className="sr-left"><div className="sr-label" style={{color:"#f87171"}}>Clear All Notes</div><div className="sr-sub">Removes all team notes</div></div>
-          <button className="test-btn" style={{color:"#f87171",borderColor:"rgba(239,68,68,.2)"}} onClick={async()=>{if(!confirm("Clear all notes?"))return;await writeShared({notes:[]});setNotes([]);}}>Clear</button>
+      {isHost && (
+        <div className="setting-section" style={{marginBottom:0}}>
+          <div className="setting-row">
+            <div className="sr-left"><div className="sr-label" style={{color:"#f87171"}}>Clear All Messages</div><div className="sr-sub">Removes all team messages</div></div>
+            <button className="test-btn" style={{color:"#f87171",borderColor:"rgba(239,68,68,.2)"}} onClick={async()=>{if(!confirm("Clear all messages?"))return;await remove(ref(db,"messages"));setMessages([]);}}>Clear</button>
+          </div>
+          <div className="setting-row">
+            <div className="sr-left"><div className="sr-label" style={{color:"#f87171"}}>Clear Alarm Log</div><div className="sr-sub">Removes alarm history</div></div>
+            <button className="test-btn" style={{color:"#f87171",borderColor:"rgba(239,68,68,.2)"}} onClick={async()=>{if(!confirm("Clear alarm log?"))return;await remove(ref(db,"alarm"));await remove(ref(db,"history"));setAlarm(null);setHistory([]);lastId.current="";}}>Clear</button>
+          </div>
         </div>
-        <div className="setting-row">
-          <div className="sr-left"><div className="sr-label" style={{color:"#f87171"}}>Clear Alarm Log</div><div className="sr-sub">Removes alarm history</div></div>
-          <button className="test-btn" style={{color:"#f87171",borderColor:"rgba(239,68,68,.2)"}} onClick={async()=>{if(!confirm("Clear alarm log?"))return;await writeShared({alarm:null,history:[]});setAlarm(null);setHistory([]);lastId.current="";}}>Clear</button>
-        </div>
-      </div>
+      )}
       <div style={{height:20}}/>
     </div>
   );
@@ -634,7 +787,7 @@ export default function SquadAlarm() {
     <><style>{CSS}</style>
     <div className="loading">
       <div className="spin">🚨</div>
-      <div style={{fontSize:10,color:"#334155",letterSpacing:".2em"}}>LOADING…</div>
+      <div style={{fontSize:10,color:"#334155",letterSpacing:".2em"}}>CONNECTING…</div>
     </div></>
   );
 
@@ -644,35 +797,55 @@ export default function SquadAlarm() {
       <div className="setup-card">
         <div className="setup-logo">🚨</div>
         <div className="setup-h1">SQUAD ALARM</div>
-        <div className="setup-tagline">Instant silent alert for your entire team — one tap, everyone reacts.</div>
+        <div className="setup-tagline">Real-time instant alert for your entire team — one tap, everyone reacts.</div>
         <div className="how-works">
           <div className="hw-title">HOW IT WORKS</div>
-          {[["Tap ALARM","Everyone's phone sounds + vibrates instantly"],["Post Notes","Leave messages visible to the whole team"],["Stay Alert","App checks for signals every 2 seconds"]].map(([t,d],i)=>(
+          {[
+            ["Tap ALARM","Everyone's phone sounds + vibrates instantly"],
+            ["Send Messages","Chat with photos — synced in real-time"],
+            ["Stay Alert","Powered by Google Firebase — live sync worldwide"]
+          ].map(([t,d],i)=>(
             <div key={i} className="hw-step"><div className="hw-num">{i+1}</div><div className="hw-text"><b style={{color:"#94a3b8"}}>{t}</b> — {d}</div></div>
           ))}
         </div>
         <div className="divider"/>
-        <div className="field-label">Your name</div>
-        <input className="setup-input" placeholder="e.g. Alex, Maria, J. Smith…" value={nameIn} onChange={e=>setNameIn(e.target.value)} onKeyDown={e=>e.key==="Enter"&&join()} autoFocus/>
-        <button className="join-btn" onClick={join}>JOIN TEAM</button>
-        <div className="setup-warn">⚠ Alarms &amp; notes are shared with everyone who opens this app.<br/>Share this link only with your teammates.</div>
+        <button className="google-btn" onClick={loginWithGoogle}>
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <path fill="#EA4335" d="M5.26620003,9.76451675 C6.19908612,6.93863855 8.85444919,4.90909091 12,4.90909091 C13.6909091,4.90909091 15.2181818,5.50909091 16.4181818,6.49090909 L19.9090909,3 C17.7818182,1.14545455 15.0545455,0 12,0 C7.35909091,0 3.32727273,2.69545455 1.34090909,6.62727273 L5.26620003,9.76451675 Z"></path>
+            <path fill="#34A853" d="M16.0407269,18.0125889 C14.9509167,18.7163089 13.5660891,19.0909091 12,19.0909091 C8.85444919,19.0909091 6.19908612,17.0613615 5.26620003,14.2354833 L1.34090909,17.3727273 C3.32727273,21.3045455 7.35909091,24 12,24 C15.0055091,24 18.0664558,22.8946777 20.2560795,20.9750778 L16.0407269,18.0125889 Z"></path>
+            <path fill="#4285F4" d="M24,12 C24,11.1272727 23.9045455,10.375 23.7545455,9.54545455 L12,9.54545455 L12,14.1272727 L18.7245889,14.1272727 C18.1590891,16.5925007 16.8227282,17.4890909 16.0407269,18.0125889 L20.2560795,20.9750778 C22.8208686,18.6620797 24,15.3932736 24,12 Z"></path>
+            <path fill="#FBBC05" d="M5.26620003,9.76451675 C5.01297593,10.5349945 4.87272727,11.3562433 4.87272727,12 C4.87272727,12.6437567 5.01297593,13.4650055 5.26620003,14.2354833 L1.34090909,17.3727273 C0.485227273,15.6713636 0,13.8886364 0,12 C0,10.1113636 0.485227273,8.32863636 1.34090909,6.62727273 L5.26620003,9.76451675 Z"></path>
+          </svg>
+          Sign in with Google
+        </button>
+        <div className="setup-warn">⚠ Alarms and messages are shared with everyone who opens this app.<br/>Share this link only with your teammates.</div>
       </div>
     </div></>
   );
 
   /* MAIN */
   const TABS = [
-    { id:"home",  icon:"🏠", label:"Home"  },
-    { id:"notes", icon:"📋", label:"Notes" },
-    { id:"log",   icon:"🚨", label:"Log"   },
-    { id:"settings",icon:"⚙️",label:"Settings"},
+    { id: "home",     icon: "🏠", label: "Home"     },
+    { id: "messages", icon: "💬", label: "Messages" },
+    { id: "voice",    icon: "🎙️", label: "War Room" },
+    { id: "calls",    icon: "💬", label: "DMs"      },
+    { id: "log",      icon: "🚨", label: "Log"      },
+    { id: "settings", icon: "⚙️", label: "Settings" },
   ];
 
   return (
     <><style>{CSS}</style>
+
+    {/* Full-screen image viewer */}
+    {fullImg && (
+      <div className="img-fullscreen" onClick={()=>setFullImg(null)}>
+        <img src={fullImg} alt="full view"/>
+      </div>
+    )}
+
     <div className="app">
 
-      {/* OVERLAY */}
+      {/* OVERLAY ALARM */}
       {overlay && alarm && (
         <div className="ov">
           <div className="ov-lines"/>
@@ -680,6 +853,7 @@ export default function SquadAlarm() {
             <div className="ov-icon">🚨</div>
             <div className="ov-word">ALARM</div>
             <div className="ov-badge">EMERGENCY ALERT</div>
+            <Avatar name={alarm.by} photo={alarm.byPhoto} size={52} />
             <div className="ov-who">{alarm.by}</div>
             <div className="ov-time">{fmtFull(alarm.ts)}</div>
             <button className="ov-dismiss" onClick={dismiss}>✓ &nbsp; DISMISS</button>
@@ -687,45 +861,52 @@ export default function SquadAlarm() {
         </div>
       )}
 
+      {/* OVERLAY PRIVATE CALL */}
+      {activeCallId && (
+        <div className="ov" style={{ zIndex: 10000, background: 'rgba(7,9,13,0.95)' }}>
+          <DirectMessages user={user} db={db} activeCallId={activeCallId} setActiveCallId={setActiveCallId} />
+        </div>
+      )}
+
       {/* STATUS BAR */}
       <div className="sb">
         <div className="sb-left">
-          <div className="sb-dot" style={{
-            background: window.storage?._isMock ? "#f59e0b" : "#22c55e",
-            boxShadow: window.storage?._isMock ? "0 0 8px #f59e0b" : "0 0 8px #22c55e"
-          }}/>
+          <div className="sb-dot"/>
           <span className="sb-title">SQUAD ALARM</span>
-          {window.storage?._isMock && (
-            <span style={{
-              fontSize: 9,
-              background: "rgba(245,158,11,0.15)",
-              border: "1px solid rgba(245,158,11,0.3)",
-              borderRadius: 4,
-              padding: "1px 4px",
-              color: "#fbbf24",
-              fontFamily: "'JetBrains Mono',monospace",
-              marginLeft: 6
-            }}>LOCAL</span>
+          {(newMsg || newAlarm) && (
+            <div style={{ background: '#ef4444', borderRadius: '10px', padding: '2px 6px', fontSize: '10px', color: '#fff', fontWeight: 'bold', marginLeft: '6px', animation: 'pulse 1.5s infinite' }}>NEW</div>
           )}
         </div>
-        <div className="sb-chip">{user?.name}</div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span className="sb-chip">{user?.name}</span>
+          <Avatar name={user?.name || ""} photo={user?.photoURL} size={24} />
+        </div>
       </div>
 
       {/* CONTENT */}
       <div className="tab-body">
         {tab === "home"     && renderHome()}
-        {tab === "notes"    && renderNotes()}
+        {tab === "messages" && renderMessages()}
+        {tab === "calls"    && !activeCallId && <DirectMessages user={user} db={db} activeCallId={activeCallId} setActiveCallId={setActiveCallId} />}
         {tab === "log"      && renderLog()}
         {tab === "settings" && renderSettings()}
+        <div style={{ display: tab === "voice" ? "block" : "none", height: "100%" }}>
+          <VoiceRoom user={user} db={db} />
+        </div>
       </div>
 
       {/* BOTTOM NAV */}
       <div className="bnav">
         {TABS.map(t => (
-          <button key={t.id} className={`bnav-btn${tab===t.id?" active":""}`} onClick={()=>{setTab(t.id);if(t.id==="log")setNewAlarm(false);}}>
+          <button
+            key={t.id}
+            className={`bnav-btn${tab===t.id?" active":""}`}
+            onClick={()=>{setTab(t.id);if(t.id==="log")setNewAlarm(false);if(t.id==="messages")setNewMsg(false);}}
+          >
             <div className="bnav-icon bnav-badge">
               {t.icon}
-              {t.id==="log" && newAlarm && tab!=="log" && <div className="badge-dot"/>}
+              {t.id==="log"      && newAlarm && tab!=="log"      && <div className="badge-dot"/>}
+              {t.id==="messages" && newMsg   && tab!=="messages" && <div className="badge-dot"/>}
             </div>
             <div className="bnav-label">{t.label}</div>
           </button>

@@ -6,5 +6,18 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 8080
+  },
+  define: {
+    global: 'window',
+    'process.env': {}
+  },
+  resolve: {
+    alias: {
+      process: 'process/browser',
+      stream: 'stream-browserify',
+      zlib: 'browserify-zlib',
+      util: 'util',
+      events: 'events'
+    }
   }
 })
