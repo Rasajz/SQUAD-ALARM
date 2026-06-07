@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { db, listenForAlarms, triggerAlarm, registerUser, listenToActiveUsers } from "./firebase";
 import { triggerAlarmOnDevice, requestNotificationPermission, showNotification } from "./alarmUtils";
+import { AIFeatures } from "./AIFeatures";
 import "./App.css";
 
 export default function App() {
@@ -172,6 +173,9 @@ export default function App() {
               <p>Alarm ringing on all devices...</p>
             </div>
           )}
+
+          {/* AI Features */}
+          <AIFeatures groupName={groupId} userName={userName} />
 
           {/* Instructions */}
           <div className="instructions">
