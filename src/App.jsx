@@ -358,6 +358,7 @@ export default function SquadAlarm() {
   const [lobbyCount, setLobbyCount] = useState(0);
   const [allUsers, setAllUsers] = useState({});
   const [selectedProfile, setSelectedProfile] = useState(null);
+  const [hasUnreadDM, setHasUnreadDM] = useState(false);
 
   const isHost = user?.uid === hostUid;
   const cooldownRef = useRef(null);
@@ -517,6 +518,22 @@ export default function SquadAlarm() {
       isNotifInitial = false;
       // Clean up notifications after reading
       if (data) remove(notifRef);
+    });
+
+    // ── Unread DM listener for badge
+    const dmListRef = ref(db, `dm_list/${user.uid}`);
+    onValue(dmListRef, (snap) => {
+      const data = snap.val();
+      let hasUnread = false;
+      if (data) {
+        for (const uid in data) {
+          if (data[uid].unread > 0) {
+            hasUnread = true;
+            break;
+          }
+        }
+      }
+      setHasUnreadDM(hasUnread);
     });
 
     // ── FCM onMessage for foreground push
@@ -1139,6 +1156,7 @@ export default function SquadAlarm() {
               {t.icon}
               {t.id==="log"      && newAlarm && tab!=="log"      && <div className="badge-dot"/>}
               {t.id==="messages" && newMsg   && tab!=="messages" && <div className="badge-dot"/>}
+              {t.id==="calls"    && hasUnreadDM && tab!=="calls" && <div className="badge-dot"/>}
             </div>
             <div className="bnav-label">{t.label}</div>
           </button>

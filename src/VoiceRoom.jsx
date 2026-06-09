@@ -319,6 +319,7 @@ export default function VoiceRoom({ user, db }) {
           peersRef.current[data.from] = { peer, name: data.fromName, photoURL: data.fromPhoto };
           updatePeersState();
         }
+        remove(ref(db, `voice_signals/${user.uid}/${snap.key}`)).catch(() => {});
       });
 
       const lobbyRef = ref(db, 'voice_lobby');
@@ -392,7 +393,7 @@ export default function VoiceRoom({ user, db }) {
             fontSize: 13, color: '#94a3b8', marginBottom: 28,
             maxWidth: 260, lineHeight: 1.6, margin: '0 auto 28px',
           }}>
-            Jump in to talk with anyone else in the room. Audio connects instantly with trickle ICE.
+            WAR ROOM Join the battle
           </div>
           <button onClick={joinRoom} style={{
             padding: '14px 32px', background: 'linear-gradient(135deg, #22c55e, #16a34a)',
