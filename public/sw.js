@@ -3,7 +3,7 @@
    Handles caching, offline support, and siren audio cache
 ══════════════════════════════════════════════════════ */
 
-const CACHE = 'squad-alarm-v14';
+const CACHE = 'squad-alarm-v15';
 
 // Pre-cache essential assets on install
 self.addEventListener('install', (e) => {
