@@ -52,6 +52,35 @@ function buzz() { try { navigator.vibrate?.([300,80,300,80,500]); } catch (_) {}
 /* ══════════════════════════════════════════════════
    DATE HELPERS
 ══════════════════════════════════════════════════ */
+function playPop() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = 'sine'; osc.frequency.setValueAtTime(400, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.5, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+    osc.start(); osc.stop(ctx.currentTime + 0.1);
+  } catch(e) {}
+}
+
+function playPing() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = 'sine'; osc.frequency.setValueAtTime(800, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.05);
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+    osc.start(); osc.stop(ctx.currentTime + 0.3);
+  } catch(e) {}
+}
+
 function fmtTime(ts) {
   return new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true });
 }
@@ -323,6 +352,7 @@ export default function SquadAlarm() {
   const [overlay,  setOverlay]  = useState(false);
   const [newAlarm, setNewAlarm] = useState(false);
   const [newMsg,   setNewMsg]   = useState(false);
+  const [dmTarget, setDmTarget] = useState(null);
   const [hostUid,  setHostUid]  = useState(null);
   const [cooldown, setCooldown] = useState(0);
   const [lobbyCount, setLobbyCount] = useState(0);
@@ -442,9 +472,11 @@ export default function SquadAlarm() {
       const data = snap.val();
       if (data) {
         const arr = Object.values(data).sort((a, b) => b.ts - a.ts);
+        const isNew = messages.length > 0 && arr.length > messages.length;
         setMessages(arr);
         setNewMsg(true);
         if (!isMsgInitialLoad && arr.length > 0 && arr[0].by !== user.name) {
+          playPing();
           if ("Notification" in window && Notification.permission === "granted") {
             try {
               new Notification("New Message", {
@@ -452,9 +484,7 @@ export default function SquadAlarm() {
                 icon: "/icon-192.png",
                 tag: "squad-message"
               });
-            } catch (e) {
-              console.warn("Notification failed:", e);
-            }
+            } catch (e) {}
           }
         }
       } else setMessages([]);
@@ -572,12 +602,14 @@ export default function SquadAlarm() {
     const m = {
       id: String(Date.now()),
       by: user.name,
+      byUid: user.uid,
       byPhoto: user.photoURL || null,
       text: msgText.trim() || null,
       photo: msgPhoto || null,
       ts: Date.now()
     };
     try {
+      playPop();
       await push(ref(db, "messages"), m);
       setMsgText(""); setMsgPhoto(null);
     } catch { alert("Could not send message."); }
@@ -692,7 +724,17 @@ export default function SquadAlarm() {
             </div>
           : messages.map(m => (
             <div key={m.id} className="msg-card" style={{position:'relative'}}>
-              <Avatar name={m.by} photo={m.byPhoto}/>
+              <div 
+                style={{cursor: m.byUid && m.byUid !== user.uid ? 'pointer' : 'default', flexShrink: 0}}
+                onClick={() => {
+                  if (m.byUid && m.byUid !== user.uid) {
+                    setDmTarget({ uid: m.byUid, name: m.by, photoURL: m.byPhoto });
+                    setTab("calls");
+                  }
+                }}
+              >
+                <Avatar name={m.by} photo={m.byPhoto}/>
+              </div>
               <div className="mc-right">
                 <div className="mc-top">
                   <span className="mc-name">{m.by}</span>
@@ -1017,7 +1059,7 @@ export default function SquadAlarm() {
       <div className="tab-body">
         {tab === "home"     && renderHome()}
         {tab === "messages" && renderMessages()}
-        {tab === "calls"    && <DirectMessages user={user} db={db} isHost={isHost} />}
+        {tab === "calls"    && <DirectMessages user={user} db={db} isHost={isHost} dmTarget={dmTarget} onClearTarget={() => setDmTarget(null)} playPop={playPop} playPing={playPing} />}
         {tab === "log"      && renderLog()}
         {tab === "settings" && renderSettings()}
         <div style={{ display: tab === "voice" ? "block" : "none", height: "100%" }}>

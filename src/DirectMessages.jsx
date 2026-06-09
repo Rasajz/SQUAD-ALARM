@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { ref, onValue, push, set, remove, off, update, increment } from 'firebase/database';
+import DMVideoCall from './DMVideoCall';
 
 /* ══════════════════════════════════════════════════
    HELPERS
@@ -108,7 +109,7 @@ const DM_CSS = `
 /* ══════════════════════════════════════════════════
    DIRECT MESSAGES COMPONENT
 ══════════════════════════════════════════════════ */
-export default function DirectMessages({ user, db, isHost }) {
+export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarget, playPop, playPing }) {
   /* ── STATE ──────────────────────────────────── */
   const [view, setView] = useState('list');
   const [selectedUser, setSelectedUser] = useState(null);
@@ -125,6 +126,8 @@ export default function DirectMessages({ user, db, isHost }) {
   const [onlineUsers, setOnlineUsers] = useState(new Set());
   const [otherSeen, setOtherSeen] = useState(0);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [inVideoCall, setInVideoCall] = useState(false);
+  const [incomingCallInfo, setIncomingCallInfo] = useState(null);
 
   const msgEndRef = useRef(null);
   const fileRef = useRef(null);
@@ -178,11 +181,26 @@ export default function DirectMessages({ user, db, isHost }) {
       if (!data) { setMessages([]); return; }
       const arr = Object.entries(data).map(([id, m]) => ({ id, ...m }));
       arr.sort((a, b) => a.ts - b.ts);
-      setMessages(arr);
+      
+      setMessages(prev => {
+        if (prev.length > 0 && arr.length > prev.length && arr[arr.length - 1].uid !== user.uid) {
+          if (playPing) playPing();
+        }
+        return arr;
+      });
     });
 
     return () => off(msgsRef);
-  }, [db, user.uid, selectedUser]);
+  }, [db, user.uid, selectedUser, playPing]);
+
+  /* ── HANDLE DM TARGET ───────────────────────── */
+  useEffect(() => {
+    if (dmTarget) {
+      setSelectedUser(dmTarget);
+      setView('chat');
+      if (onClearTarget) onClearTarget();
+    }
+  }, [dmTarget, onClearTarget]);
 
   /* ── MARK AS READ (on open + on new messages) ─ */
   useEffect(() => {
@@ -236,6 +254,28 @@ export default function DirectMessages({ user, db, isHost }) {
     }
   }, [messages]);
 
+  /* ── LISTEN FOR INCOMING DM CALLS ───────────── */
+  useEffect(() => {
+    if (!user) return;
+    const callsRef = ref(db, 'dm_calls');
+    const handler = onValue(callsRef, snap => {
+      const data = snap.val();
+      if (!data) { setIncomingCallInfo(null); return; }
+      
+      let incoming = null;
+      Object.entries(data).forEach(([chatId, callData]) => {
+        // If this chat involves us, and we are NOT the caller, and it's ringing
+        if (chatId.includes(user.uid) && callData.caller !== user.uid && callData.status === 'ringing') {
+          const otherUid = chatId.split('_').find(id => id !== user.uid);
+          const otherData = allUsers.find(u => u.uid === otherUid);
+          if (otherData) incoming = { chatId, caller: otherData };
+        }
+      });
+      setIncomingCallInfo(incoming);
+    });
+    return () => off(callsRef);
+  }, [db, user, allUsers]);
+
   /* ── HANDLERS ───────────────────────────────── */
   const openChat = useCallback((u) => {
     setSelectedUser(u);
@@ -288,6 +328,7 @@ export default function DirectMessages({ user, db, isHost }) {
     };
 
     try {
+      if (playPop) playPop();
       await push(ref(db, `dm_chats/${chatId}/messages`), msg);
 
       // Update my chat list preview
@@ -548,29 +589,21 @@ export default function DirectMessages({ user, db, isHost }) {
             <div style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0' }}>
               {selectedUser.name}
             </div>
-            <div style={{
-              fontSize: 11, fontWeight: 600,
-              color: onlineUsers.has(selectedUser.uid) ? '#22c55e' : '#475569',
-            }}>
-              {onlineUsers.has(selectedUser.uid) ? '● Online' : 'Offline'}
-            </div>
           </div>
-          <button onClick={() => startCall('audio')} style={{
-            width: 36, height: 36, borderRadius: 10, background: 'rgba(34,197,94,0.1)',
-            border: '1px solid rgba(34,197,94,0.2)', color: '#22c55e',
-            fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center',
-            justifyContent: 'center', flexShrink: 0, transition: 'all 0.15s',
-          }} title="Audio call">
-            📞
-          </button>
-          <button onClick={() => startCall('video')} style={{
-            width: 36, height: 36, borderRadius: 10, background: 'rgba(59,130,246,0.1)',
-            border: '1px solid rgba(59,130,246,0.2)', color: '#3b82f6',
-            fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center',
-            justifyContent: 'center', flexShrink: 0, transition: 'all 0.15s',
-          }} title="Video call">
-            📹
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button 
+              onClick={() => setInVideoCall(true)}
+              style={{
+                width: 36, height: 36, borderRadius: '50%', background: 'rgba(59,130,246,0.15)',
+                border: '1px solid rgba(59,130,246,0.3)', color: '#3b82f6', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}
+              title="Start Video Call"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+            </button>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: onlineUsers.has(selectedUser.uid) ? '#22c55e' : '#64748b' }} />
+          </div>
         </div>
 
         {/* ── Messages Area ────────────────────── */}
@@ -1049,6 +1082,51 @@ export default function DirectMessages({ user, db, isHost }) {
       }}>
         {view === 'list' ? renderChatList() : renderConversation()}
       </div>
+
+      {/* ── INCOMING CALL OVERLAY ── */}
+      {incomingCallInfo && !inVideoCall && (
+        <div style={{
+          position: 'absolute', top: 20, left: 20, right: 20, background: 'rgba(15,23,42,0.95)',
+          backdropFilter: 'blur(10px)', border: '1px solid rgba(59,130,246,0.5)', borderRadius: 16,
+          padding: 20, display: 'flex', alignItems: 'center', gap: 16, zIndex: 1000,
+          boxShadow: '0 10px 40px rgba(0,0,0,0.5), 0 0 20px rgba(59,130,246,0.2)'
+        }}>
+          <DMAvatar name={incomingCallInfo.caller.name} photo={incomingCallInfo.caller.photoURL} size={48} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{incomingCallInfo.caller.name}</div>
+            <div style={{ fontSize: 13, color: '#3b82f6', fontWeight: 600 }}>Incoming Video Call...</div>
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button 
+              onClick={() => remove(ref(db, `dm_calls/${incomingCallInfo.chatId}`))}
+              style={{ width: 44, height: 44, borderRadius: '50%', background: '#ef4444', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"></path><line x1="23" y1="1" x2="1" y2="23"></line></svg>
+            </button>
+            <button 
+              onClick={() => {
+                setSelectedUser(incomingCallInfo.caller);
+                setInVideoCall(true);
+                setView('chat');
+              }}
+              style={{ width: 44, height: 44, borderRadius: '50%', background: '#22c55e', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'vcSpeakGlow 1.5s infinite' }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── DM VIDEO CALL FULLSCREEN ── */}
+      {inVideoCall && selectedUser && (
+        <DMVideoCall 
+          user={user} 
+          db={db} 
+          chatId={getChatId(user.uid, selectedUser.uid)} 
+          otherUser={selectedUser} 
+          onEndCall={() => setInVideoCall(false)} 
+        />
+      )}
     </>
   );
 }

@@ -106,7 +106,7 @@ const VOICE_CSS = `
 
 // ── Avatar ───────────────────────────────────────
 const COLORS = ["#e53935","#8e24aa","#1565c0","#00838f","#2e7d32","#e65100","#6a1b9a","#ad1457"];
-function VRAvatar({ name, photo, size = 64, speaking, stream }) {
+const VRAvatar = React.memo(function VRAvatar({ name, photo, size = 64, speaking, stream }) {
   const n = name || '?';
   const col = COLORS[n.toUpperCase().charCodeAt(0) % COLORS.length];
   const ini = n.trim().split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -147,7 +147,7 @@ function VRAvatar({ name, photo, size = 64, speaking, stream }) {
       {ini}
     </div>
   );
-}
+});
 
 function fmtDuration(s) {
   const m = Math.floor(s / 60);
@@ -330,7 +330,8 @@ export default function VoiceRoom({ user, db }) {
         let changed = false;
         Object.keys(peersRef.current).forEach(uid => {
           const info = lobby[uid];
-          if (!info || (now - (info.lastSeen || info.joinedAt || now) > 35000)) {
+          const lastActive = info ? (info.lastSeen || info.joinedAt || 0) : 0;
+          if (!info || (now - lastActive > 35000)) {
             try { peersRef.current[uid].peer.destroy(); } catch (_) {}
             delete peersRef.current[uid];
             if (vadCleanups.current[uid]) { vadCleanups.current[uid](); delete vadCleanups.current[uid]; }
@@ -340,7 +341,8 @@ export default function VoiceRoom({ user, db }) {
 
         // Add new peers
         Object.entries(lobby).forEach(([uid, info]) => {
-          if (uid !== user.uid && !peersRef.current[uid] && (now - (info.lastSeen || info.joinedAt || now) <= 35000)) {
+          const lastActive = info.lastSeen || info.joinedAt || 0;
+          if (uid !== user.uid && !peersRef.current[uid] && (now - lastActive <= 35000)) {
             const peer = createPeer(uid, info);
             if (peer) {
               peersRef.current[uid] = { peer, name: info.name, photoURL: info.photoURL };
