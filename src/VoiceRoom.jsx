@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+﻿import { useState, useEffect, useRef, useCallback } from 'react';
 import { ref, onValue, set, push, onChildAdded, remove, off, onDisconnect, update } from 'firebase/database';
 import Peer from 'simple-peer';
 
-/* ══════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    ICE SERVERS CONFIG
-══════════════════════════════════════════════════ */
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
@@ -14,9 +14,9 @@ const ICE_SERVERS = [
   { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
 ];
 
-/* ══════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    RINGING SOUND (soft phone ring via Web Audio)
-══════════════════════════════════════════════════ */
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 let ringCtx = null;
 let ringNodes = [];
 
@@ -60,9 +60,9 @@ function stopRing() {
   ringNodes = [];
 }
 
-/* ══════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    VOICE ACTIVITY DETECTION
-══════════════════════════════════════════════════ */
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 function createVAD(stream, onSpeaking) {
   try {
     const ctx = new AudioContext();
@@ -83,9 +83,9 @@ function createVAD(stream, onSpeaking) {
   } catch (_) { return () => {}; }
 }
 
-/* ══════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    CSS ANIMATIONS
-══════════════════════════════════════════════════ */
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 const VOICE_CSS = `
 @keyframes vcPulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
@@ -105,9 +105,9 @@ const VOICE_CSS = `
 }
 `;
 
-/* ══════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    AVATAR (local to VoiceRoom)
-══════════════════════════════════════════════════ */
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 const COLORS = ["#e53935","#8e24aa","#1565c0","#00838f","#2e7d32","#e65100","#6a1b9a","#ad1457"];
 function VRAvatar({ name, photo, size = 64, speaking }) {
   const n = name || '?';
@@ -142,9 +142,9 @@ function fmtDuration(s) {
   return `${m}:${sec.toString().padStart(2, '0')}`;
 }
 
-/* ══════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    VOICE ROOM (Group War Room)
-══════════════════════════════════════════════════ */
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 export default function VoiceRoom({ user, db }) {
   const [inRoom, setInRoom] = useState(false);
   const [peers, setPeers] = useState([]);
@@ -374,7 +374,7 @@ export default function VoiceRoom({ user, db }) {
       }}>
         {!inRoom ? (
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>🎙️</div>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>ðŸŽ™ï¸</div>
             <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8, color: '#e2e8f0' }}>
               Join the Live War Room
             </div>
@@ -449,7 +449,7 @@ export default function VoiceRoom({ user, db }) {
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 transition: 'all 0.2s',
               }}>
-                {isMuted ? '🔇' : '🎤'}
+                {isMuted ? 'ðŸ”‡' : 'ðŸŽ¤'}
               </button>
               <button onClick={toggleDeafen} style={{
                 width: 54, height: 54, borderRadius: '50%',
@@ -459,7 +459,7 @@ export default function VoiceRoom({ user, db }) {
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 transition: 'all 0.2s',
               }}>
-                {isDeafened ? '🔕' : '🔊'}
+                {isDeafened ? 'ðŸ”•' : 'ðŸ”Š'}
               </button>
               <button onClick={leaveRoom} style={{
                 padding: '0 24px', height: 54, background: '#ef4444', color: '#fff',
@@ -478,21 +478,20 @@ export default function VoiceRoom({ user, db }) {
   );
 }
 
-/* ══════════════════════════════════════════════════
-   CALL OVERLAY (1-on-1 Calls — Floating)
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+   CALL OVERLAY (1-on-1 Calls â€” Floating)
    Mounted at App level, always listens for calls
-══════════════════════════════════════════════════ */
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 export function CallOverlay({ user, db }) {
   const [incomingCall, setIncomingCall] = useState(null);
   const [activeCall, setActiveCall] = useState(null);
-  const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [remoteSpeaking, setRemoteSpeaking] = useState(false);
-  const [callStatus, setCallStatus] = useState(''); // 'calling' | 'connecting' | 'active'
+  const [callStatus, setCallStatus] = useState('');
 
   const peerRef = useRef(null);
   const streamRef = useRef(null);
@@ -501,35 +500,34 @@ export function CallOverlay({ user, db }) {
   const ringIntervalRef = useRef(null);
   const vadCleanupRef = useRef(null);
   const activeCallRef = useRef(null);
-  const signalListenerRef = useRef(null);
+  const handledCallIds = useRef(new Set());
 
-  const endCall = useCallback(() => {
-    if (peerRef.current) {
-      try { peerRef.current.destroy(); } catch (_) {}
-      peerRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
-    }
+  /* â”€â”€ Cleanup everything â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  const fullCleanup = useCallback(() => {
+    if (peerRef.current) { try { peerRef.current.destroy(); } catch (_) {} peerRef.current = null; }
+    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
     if (ringIntervalRef.current) { clearInterval(ringIntervalRef.current); ringIntervalRef.current = null; }
     if (vadCleanupRef.current) { vadCleanupRef.current(); vadCleanupRef.current = null; }
-    if (signalListenerRef.current) { off(signalListenerRef.current); signalListenerRef.current = null; }
     stopRing();
+  }, []);
 
-    if (activeCallRef.current) {
-      update(ref(db, `calls/${activeCallRef.current.id}`), {
-        status: 'ended', endedAt: Date.now(),
-      }).catch(() => {});
-      remove(ref(db, `call_signals/${activeCallRef.current.id}`)).catch(() => {});
+  /* â”€â”€ End call (removes from Firebase) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  const endCall = useCallback(() => {
+    const callId = activeCallRef.current?.id;
+    fullCleanup();
+
+    // REMOVE from Firebase entirely so listeners don't re-detect
+    if (callId) {
+      remove(ref(db, `calls/${callId}`)).catch(() => {});
+      remove(ref(db, `call_signals/${callId}`)).catch(() => {});
+      handledCallIds.current.add(callId);
     }
 
     setActiveCall(null);
     activeCallRef.current = null;
     setIncomingCall(null);
-    setLocalStream(null);
     setRemoteStream(null);
     setCallDuration(0);
     setIsMuted(false);
@@ -537,54 +535,12 @@ export function CallOverlay({ user, db }) {
     setMinimized(false);
     setRemoteSpeaking(false);
     setCallStatus('');
-  }, [db]);
+  }, [db, fullCleanup]);
 
-  /* ── Listen for incoming + outgoing calls ──── */
-  useEffect(() => {
-    if (!user) return;
-    const callsRef = ref(db, 'calls');
-    const handler = onValue(callsRef, snap => {
-      const data = snap.val();
-      if (!data) return;
-
-      // If already in a call, only listen for status changes
-      if (activeCallRef.current) {
-        const current = data[activeCallRef.current.id];
-        if (current && (current.status === 'ended' || current.status === 'declined' || current.status === 'missed')) {
-          endCall();
-        }
-        return;
-      }
-
-      // Check for incoming call
-      if (!incomingCall && !activeCallRef.current) {
-        const incoming = Object.entries(data).find(([, c]) =>
-          c.receiver === user.uid && c.status === 'ringing'
-        );
-        if (incoming) {
-          const [callId, callData] = incoming;
-          setIncomingCall({ id: callId, ...callData });
-          if (!ringIntervalRef.current) {
-            playRing();
-            ringIntervalRef.current = setInterval(playRing, 2000);
-          }
-        }
-      }
-
-      // Check for outgoing call I initiated (status changed to 'active' = receiver accepted)
-      if (activeCallRef.current && callStatus === 'calling') {
-        const myCall = data[activeCallRef.current.id];
-        if (myCall && myCall.status === 'active') {
-          setCallStatus('active');
-        }
-      }
-    });
-
-    return () => off(callsRef);
-  }, [db, user.uid, incomingCall, endCall, callStatus]);
-
-  /* ── Setup peer + signals for active call ──── */
+  /* â”€â”€ Setup WebRTC peer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   const setupPeer = useCallback((callId, isInitiator, mediaStream) => {
+    if (peerRef.current) { try { peerRef.current.destroy(); } catch (_) {} }
+
     const peer = new Peer({
       initiator: isInitiator, trickle: true, stream: mediaStream,
       config: { iceServers: ICE_SERVERS },
@@ -607,73 +563,128 @@ export function CallOverlay({ user, db }) {
       }
     });
 
-    let reconnectAttempted = false;
-    peer.on('close', () => {
-      if (!reconnectAttempted && activeCallRef.current) {
-        reconnectAttempted = true;
-        // One reconnect attempt
-        setTimeout(() => {
-          if (activeCallRef.current) {
-            try {
-              const newPeer = new Peer({
-                initiator: isInitiator, trickle: true, stream: streamRef.current,
-                config: { iceServers: ICE_SERVERS },
-              });
-              newPeer.on('signal', sig => push(ref(db, `call_signals/${callId}`), { from: user.uid, signal: sig }));
-              newPeer.on('stream', rs => { setRemoteStream(rs); });
-              newPeer.on('connect', () => setCallStatus('active'));
-              newPeer.on('close', () => endCall());
-              newPeer.on('error', () => endCall());
-              peerRef.current = newPeer;
-            } catch (_) { endCall(); }
-          }
-        }, 1000);
-      } else {
-        endCall();
-      }
-    });
-
-    peer.on('error', (err) => {
-      console.warn('Call peer error:', err);
-      if (!reconnectAttempted) {
-        reconnectAttempted = true;
-        // Don't immediately end — the close handler will try reconnect
-      }
-    });
+    peer.on('close', () => endCall());
+    peer.on('error', (err) => { console.warn('Peer error:', err); });
 
     peerRef.current = peer;
 
-    // Listen for signals from the other party
-    const sigRef = ref(db, `call_signals/${callId}`);
-    signalListenerRef.current = sigRef;
-    onChildAdded(sigRef, snap => {
+    // Listen for signals
+    onChildAdded(ref(db, `call_signals/${callId}`), snap => {
       const d = snap.val();
-      if (d.from !== user.uid && peerRef.current) {
-        try { peerRef.current.signal(d.signal); } catch (e) {
-          console.warn('Signal error:', e);
-        }
+      if (d && d.from !== user.uid && peerRef.current) {
+        try { peerRef.current.signal(d.signal); } catch (e) { console.warn('Signal err:', e); }
       }
     });
 
     return peer;
-  }, [db, user.uid, endCall]);
+  }, [db, user, endCall]);
 
-  /* ── Accept incoming call ──────────────────── */
+  /* â”€â”€ SINGLE unified Firebase listener â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  useEffect(() => {
+    if (!user) return;
+    const callsRef = ref(db, 'calls');
+
+    const handler = onValue(callsRef, async (snap) => {
+      const data = snap.val();
+      if (!data) return;
+
+      // If we have an active call, check if it was ended by the other party
+      if (activeCallRef.current) {
+        const myCall = data[activeCallRef.current.id];
+        if (!myCall || myCall.status === 'ended' || myCall.status === 'declined' || myCall.status === 'missed') {
+          endCall();
+        } else if (myCall.status === 'active' && callStatus === 'calling') {
+          setCallStatus('active');
+        }
+        return;
+      }
+
+      // Skip if we have an incoming call already showing
+      if (incomingCall) return;
+
+      const now = Date.now();
+
+      // Check for INCOMING call (someone calling us)
+      const incoming = Object.entries(data).find(([id, c]) =>
+        c.receiver === user.uid &&
+        c.status === 'ringing' &&
+        !handledCallIds.current.has(id) &&
+        (now - (c.startedAt || 0)) < 60000 // Ignore calls older than 60s
+      );
+
+      if (incoming) {
+        const [callId, callData] = incoming;
+        setIncomingCall({ id: callId, ...callData });
+        if (!ringIntervalRef.current) {
+          playRing();
+          ringIntervalRef.current = setInterval(playRing, 2000);
+        }
+        return;
+      }
+
+      // Check for OUTGOING call (I initiated from DMs)
+      const outgoing = Object.entries(data).find(([id, c]) =>
+        c.caller === user.uid &&
+        c.status === 'ringing' &&
+        !handledCallIds.current.has(id) &&
+        !activeCallRef.current &&
+        (now - (c.startedAt || 0)) < 60000
+      );
+
+      if (outgoing) {
+        const [callId, callData] = outgoing;
+        handledCallIds.current.add(callId);
+
+        try {
+          const mediaStream = await navigator.mediaDevices.getUserMedia({
+            audio: true, video: callData.type === 'video',
+          });
+          streamRef.current = mediaStream;
+          setIsVideoOn(callData.type === 'video');
+
+          const call = { id: callId, ...callData, direction: 'outgoing' };
+          setActiveCall(call);
+          activeCallRef.current = call;
+          setCallStatus('calling');
+
+          setupPeer(callId, true, mediaStream);
+
+          // 30s timeout
+          timeoutRef.current = setTimeout(() => {
+            if (activeCallRef.current?.id === callId) {
+              update(ref(db, `calls/${callId}`), { status: 'missed' }).catch(() => {});
+              endCall();
+            }
+          }, 30000);
+        } catch (err) {
+          console.error('Call setup failed:', err);
+          remove(ref(db, `calls/${callId}`)).catch(() => {});
+          alert('Could not access microphone/camera.');
+        }
+      }
+    });
+
+    return () => off(callsRef);
+  }, [db, user, endCall, setupPeer, incomingCall, callStatus]);
+
+  /* â”€â”€ Accept incoming call â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   const acceptCall = useCallback(async () => {
     if (!incomingCall) return;
     clearInterval(ringIntervalRef.current);
     ringIntervalRef.current = null;
     stopRing();
 
+    const callId = incomingCall.id;
+    handledCallIds.current.add(callId);
+
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: true, video: incomingCall.type === 'video',
       });
       streamRef.current = mediaStream;
-      setLocalStream(mediaStream);
       setIsVideoOn(incomingCall.type === 'video');
 
-      await update(ref(db, `calls/${incomingCall.id}`), { status: 'active' });
+      await update(ref(db, `calls/${callId}`), { status: 'active' });
 
       const call = { ...incomingCall, direction: 'incoming' };
       setActiveCall(call);
@@ -681,9 +692,8 @@ export function CallOverlay({ user, db }) {
       setIncomingCall(null);
       setCallStatus('connecting');
 
-      setupPeer(incomingCall.id, false, mediaStream);
+      setupPeer(callId, false, mediaStream);
 
-      // Start timer
       if (!timerRef.current) {
         timerRef.current = setInterval(() => setCallDuration(d => d + 1), 1000);
       }
@@ -694,79 +704,32 @@ export function CallOverlay({ user, db }) {
     }
   }, [incomingCall, db, setupPeer, endCall]);
 
-  /* ── Decline incoming call ─────────────────── */
-  const declineCall = useCallback(async () => {
+  /* â”€â”€ Decline incoming call â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  const declineCall = useCallback(() => {
     if (!incomingCall) return;
     clearInterval(ringIntervalRef.current);
     ringIntervalRef.current = null;
     stopRing();
-    await update(ref(db, `calls/${incomingCall.id}`), { status: 'declined' }).catch(() => {});
+    handledCallIds.current.add(incomingCall.id);
+    remove(ref(db, `calls/${incomingCall.id}`)).catch(() => {});
     setIncomingCall(null);
   }, [incomingCall, db]);
 
-  /* ── Auto-timeout for incoming calls (30s) ─── */
+  /* â”€â”€ Auto-timeout incoming (30s) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   useEffect(() => {
     if (!incomingCall) return;
-    const timer = setTimeout(async () => {
-      if (incomingCall) {
-        clearInterval(ringIntervalRef.current);
-        ringIntervalRef.current = null;
-        stopRing();
-        await update(ref(db, `calls/${incomingCall.id}`), { status: 'missed' }).catch(() => {});
-        setIncomingCall(null);
-      }
+    const timer = setTimeout(() => {
+      clearInterval(ringIntervalRef.current);
+      ringIntervalRef.current = null;
+      stopRing();
+      handledCallIds.current.add(incomingCall.id);
+      update(ref(db, `calls/${incomingCall.id}`), { status: 'missed' }).catch(() => {});
+      setIncomingCall(null);
     }, 30000);
     return () => clearTimeout(timer);
   }, [incomingCall, db]);
 
-  /* ── Handle outgoing call (written by DirectMessages) */
-  useEffect(() => {
-    if (!user) return;
-    const callsRef = ref(db, 'calls');
-    const handler = onValue(callsRef, async snap => {
-      const data = snap.val();
-      if (!data || activeCallRef.current) return;
-
-      const outgoing = Object.entries(data).find(([, c]) =>
-        c.caller === user.uid && c.status === 'ringing' && !activeCallRef.current
-      );
-
-      if (outgoing) {
-        const [callId, callData] = outgoing;
-        try {
-          const mediaStream = await navigator.mediaDevices.getUserMedia({
-            audio: true, video: callData.type === 'video',
-          });
-          streamRef.current = mediaStream;
-          setLocalStream(mediaStream);
-          setIsVideoOn(callData.type === 'video');
-
-          const call = { id: callId, ...callData, direction: 'outgoing' };
-          setActiveCall(call);
-          activeCallRef.current = call;
-          setCallStatus('calling');
-
-          setupPeer(callId, true, mediaStream);
-
-          // 30s timeout for no answer
-          timeoutRef.current = setTimeout(async () => {
-            if (activeCallRef.current?.id === callId) {
-              await update(ref(db, `calls/${callId}`), { status: 'missed' }).catch(() => {});
-              endCall();
-            }
-          }, 30000);
-        } catch (err) {
-          console.error('Call setup failed:', err);
-          await update(ref(db, `calls/${callId}`), { status: 'ended' }).catch(() => {});
-          alert('Could not access microphone/camera.');
-        }
-      }
-    });
-
-    return () => off(callsRef);
-  }, [db, user, setupPeer, endCall]);
-
-  /* ── Toggle mute ───────────────────────────── */
+  /* â”€â”€ Toggle mute â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   const toggleMute = () => {
     if (streamRef.current) {
       const t = streamRef.current.getAudioTracks()[0];
@@ -774,30 +737,19 @@ export function CallOverlay({ user, db }) {
     }
   };
 
-  /* ── Toggle camera ─────────────────────────── */
+  /* â”€â”€ Toggle camera â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   const toggleCamera = async () => {
     if (!streamRef.current) return;
     const videoTrack = streamRef.current.getVideoTracks()[0];
     if (videoTrack) {
       videoTrack.enabled = !videoTrack.enabled;
       setIsVideoOn(videoTrack.enabled);
-    } else if (!isVideoOn) {
-      // Add video track
-      try {
-        const vs = await navigator.mediaDevices.getUserMedia({ video: true });
-        const vt = vs.getVideoTracks()[0];
-        streamRef.current.addTrack(vt);
-        if (peerRef.current) peerRef.current.addTrack(vt, streamRef.current);
-        setIsVideoOn(true);
-      } catch (_) { alert('Could not access camera.'); }
     }
   };
 
-  /* ══════════════════════════════════════════════
+  /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      RENDER
-  ══════════════════════════════════════════════ */
-
-  // Nothing to show (no user, or no active/incoming call)
+  â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
   if (!user || (!incomingCall && !activeCall)) return <style>{VOICE_CSS}</style>;
 
   const otherName = activeCall
@@ -812,17 +764,16 @@ export function CallOverlay({ user, db }) {
     <>
       <style>{VOICE_CSS}</style>
 
-      {/* ── INCOMING CALL SCREEN ──────────────── */}
+      {/* â”€â”€ INCOMING CALL SCREEN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {incomingCall && !activeCall && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 10000,
           display: 'flex', flexDirection: 'column', alignItems: 'center',
           justifyContent: 'center', padding: 24,
+          background: 'rgba(7,9,13,0.97)',
           animation: 'vcIncomingBg 2s ease-in-out infinite',
         }}>
-          <div style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
-          }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
             <div style={{
               fontSize: 12, fontWeight: 600, color: '#94a3b8',
               letterSpacing: '0.12em', textTransform: 'uppercase',
@@ -836,9 +787,6 @@ export function CallOverlay({ user, db }) {
             <div style={{ fontSize: 24, fontWeight: 800, color: '#f1f5f9' }}>
               {incomingCall.callerName}
             </div>
-            <div style={{ fontSize: 13, color: '#64748b' }}>
-              {incomingCall.type === 'video' ? '📹 Video Call' : '📞 Audio Call'}
-            </div>
 
             <div style={{ display: 'flex', gap: 40, marginTop: 30 }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
@@ -848,9 +796,8 @@ export function CallOverlay({ user, db }) {
                   fontSize: 24, cursor: 'pointer', display: 'flex',
                   alignItems: 'center', justifyContent: 'center',
                   boxShadow: '0 4px 20px rgba(239,68,68,0.4)',
-                  transition: 'transform 0.15s',
                 }}>
-                  ✕
+                  âœ•
                 </button>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#ef4444' }}>Decline</span>
               </div>
@@ -861,9 +808,8 @@ export function CallOverlay({ user, db }) {
                   fontSize: 24, cursor: 'pointer', display: 'flex',
                   alignItems: 'center', justifyContent: 'center',
                   boxShadow: '0 4px 20px rgba(34,197,94,0.4)',
-                  transition: 'transform 0.15s',
                 }}>
-                  ✓
+                  âœ“
                 </button>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#22c55e' }}>Accept</span>
               </div>
@@ -872,7 +818,7 @@ export function CallOverlay({ user, db }) {
         </div>
       )}
 
-      {/* ── ACTIVE CALL FLOATING OVERLAY ──────── */}
+      {/* â”€â”€ ACTIVE CALL FLOATING OVERLAY â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {activeCall && (
         <div style={{
           position: 'fixed',
@@ -889,13 +835,9 @@ export function CallOverlay({ user, db }) {
           transition: 'all 0.3s ease',
         }}>
           {minimized ? (
-            /* Minimized pill */
-            <div
-              onClick={() => setMinimized(false)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
-              }}
-            >
+            <div onClick={() => setMinimized(false)} style={{
+              display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+            }}>
               <div style={{
                 width: 8, height: 8, borderRadius: '50%', background: '#22c55e',
                 animation: 'vcPulse 2s ease-in-out infinite',
@@ -909,83 +851,53 @@ export function CallOverlay({ user, db }) {
               <VRAvatar name={otherName || ''} photo={otherPhoto} size={24} />
             </div>
           ) : (
-            /* Full overlay */
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-              {/* Header */}
               <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                width: '100%',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%',
               }}>
                 <span style={{
-                  fontSize: 10, fontWeight: 600, color: callStatus === 'active' ? '#22c55e' : '#f59e0b',
+                  fontSize: 10, fontWeight: 600,
+                  color: callStatus === 'active' ? '#22c55e' : '#f59e0b',
                   letterSpacing: '0.1em', fontFamily: "'JetBrains Mono',monospace",
                 }}>
-                  {callStatus === 'calling' ? 'CALLING…' : callStatus === 'connecting' ? 'CONNECTING…' : fmtDuration(callDuration)}
+                  {callStatus === 'calling' ? 'CALLINGâ€¦' : callStatus === 'connecting' ? 'CONNECTINGâ€¦' : fmtDuration(callDuration)}
                 </span>
                 <button onClick={() => setMinimized(true)} style={{
-                  background: 'none', border: 'none', color: '#64748b',
-                  fontSize: 14, cursor: 'pointer',
-                }}>
-                  ▼
-                </button>
+                  background: 'none', border: 'none', color: '#64748b', fontSize: 14, cursor: 'pointer',
+                }}>â–¼</button>
               </div>
 
-              {/* Remote video or avatar */}
               <div style={{
                 width: '100%', aspectRatio: '16/10', borderRadius: 12,
                 background: '#0a0c12', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', overflow: 'hidden', position: 'relative',
+                justifyContent: 'center', overflow: 'hidden',
               }}>
-                {remoteStream && isVideoOn ? (
-                  <video
-                    ref={el => { if (el && el.srcObject !== remoteStream) { el.srcObject = remoteStream; el.play().catch(() => {}); } }}
-                    autoPlay playsInline
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                ) : (
-                  <VRAvatar
-                    name={otherName || ''}
-                    photo={otherPhoto}
-                    size={56}
-                    speaking={remoteSpeaking}
-                  />
-                )}
-                {/* Remote audio */}
+                <VRAvatar name={otherName || ''} photo={otherPhoto} size={56} speaking={remoteSpeaking} />
                 {remoteStream && (
-                  <audio
-                    ref={el => { if (el && el.srcObject !== remoteStream) { el.srcObject = remoteStream; el.play().catch(() => {}); } }}
-                    autoPlay playsInline
-                    style={{ display: 'none' }}
-                  />
+                  <audio ref={el => { if (el && el.srcObject !== remoteStream) { el.srcObject = remoteStream; el.play().catch(() => {}); } }} autoPlay playsInline style={{ display: 'none' }} />
                 )}
               </div>
 
-              {/* Name */}
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>
-                {otherName}
-              </span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>{otherName}</span>
 
-              {/* Controls */}
               <div style={{ display: 'flex', gap: 10 }}>
                 <button onClick={toggleMute} style={{
                   width: 40, height: 40, borderRadius: '50%',
                   background: isMuted ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.08)',
                   border: `1px solid ${isMuted ? '#ef4444' : 'rgba(255,255,255,0.15)'}`,
-                  color: isMuted ? '#ef4444' : '#e2e8f0',
-                  fontSize: 16, cursor: 'pointer',
+                  color: isMuted ? '#ef4444' : '#e2e8f0', fontSize: 16, cursor: 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
-                  {isMuted ? '🔇' : '🎤'}
+                  {isMuted ? 'ðŸ”‡' : 'ðŸŽ¤'}
                 </button>
                 <button onClick={toggleCamera} style={{
                   width: 40, height: 40, borderRadius: '50%',
                   background: isVideoOn ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.08)',
                   border: `1px solid ${isVideoOn ? '#3b82f6' : 'rgba(255,255,255,0.15)'}`,
-                  color: isVideoOn ? '#3b82f6' : '#e2e8f0',
-                  fontSize: 16, cursor: 'pointer',
+                  color: isVideoOn ? '#3b82f6' : '#e2e8f0', fontSize: 16, cursor: 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
-                  {isVideoOn ? '📹' : '📷'}
+                  {isVideoOn ? 'ðŸ“¹' : 'ðŸ“·'}
                 </button>
                 <button onClick={endCall} style={{
                   width: 40, height: 40, borderRadius: '50%',
@@ -994,7 +906,7 @@ export function CallOverlay({ user, db }) {
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   boxShadow: '0 2px 10px rgba(239,68,68,0.3)',
                 }}>
-                  ✕
+                  âœ•
                 </button>
               </div>
             </div>
@@ -1004,3 +916,4 @@ export function CallOverlay({ user, db }) {
     </>
   );
 }
+
