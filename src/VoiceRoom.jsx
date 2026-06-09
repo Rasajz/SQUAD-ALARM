@@ -385,30 +385,32 @@ export default function VoiceRoom({ user, db }) {
       <style>{VOICE_CSS}</style>
       {!inRoom ? (
         <div style={{ textAlign: 'center', padding: '40px 0' }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>{Icons.mic('#64748b', 48)}</div>
-          <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 8, color: '#e2e8f0' }}>
-            Join the Live War Room
+          <div style={{ fontSize: 64, marginBottom: 16, textShadow: '0 0 20px rgba(239,68,68,0.6)' }}>♞ ⚔</div>
+          <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 8, color: '#f87171', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+            Enter The War Room
           </div>
           <div style={{
-            fontSize: 13, color: '#94a3b8', marginBottom: 28,
+            fontSize: 13, color: '#fca5a5', marginBottom: 28,
             maxWidth: 260, lineHeight: 1.6, margin: '0 auto 28px',
+            opacity: 0.8
           }}>
             WAR ROOM Join the battle
           </div>
           <button onClick={joinRoom} style={{
-            padding: '14px 32px', background: 'linear-gradient(135deg, #22c55e, #16a34a)',
-            color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 800,
+            padding: '16px 36px', background: 'linear-gradient(135deg, #dc2626, #991b1b)',
+            color: '#fff', border: '1px solid #f87171', borderRadius: 6, fontSize: 16, fontWeight: 900,
             cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 10,
-            boxShadow: '0 8px 24px rgba(34,197,94,0.3)', transition: 'all 0.15s',
-            letterSpacing: '0.03em',
+            boxShadow: '0 8px 32px rgba(220,38,38,0.5)', transition: 'all 0.15s',
+            letterSpacing: '0.1em', textTransform: 'uppercase'
           }}>
-            {Icons.mic('#fff', 18)} CONNECT NOW
+            {Icons.mic('#fff', 18)} JOIN THE BATTLE
           </button>
         </div>
       ) : (
-        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24 }}>
+        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24, position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', fontSize: 180, opacity: 0.03, pointerEvents: 'none' }}>♞</div>
           <div style={{
-            display: 'flex', flexWrap: 'wrap', gap: 20, justifyContent: 'center', width: '100%',
+            display: 'flex', flexWrap: 'wrap', gap: 20, justifyContent: 'center', width: '100%', position: 'relative', zIndex: 1
           }}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
               <VRAvatar name={user.name} photo={user.photoURL} size={64} speaking={false} stream={stream} />
