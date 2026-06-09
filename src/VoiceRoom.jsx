@@ -1,10 +1,8 @@
-﻿import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { ref, onValue, set, push, onChildAdded, remove, off, onDisconnect, update } from 'firebase/database';
 import Peer from 'simple-peer';
 
-/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-   ICE SERVERS CONFIG
-â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+// ── ICE Servers ──────────────────────────────────
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
@@ -14,9 +12,20 @@ const ICE_SERVERS = [
   { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
 ];
 
-/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-   RINGING SOUND (soft phone ring via Web Audio)
-â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+// ── SVG Icons (cross-platform, no emoji issues) ──
+const Icons = {
+  phone: (c = '#fff', s = 20) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>,
+  phoneOff: (c = '#fff', s = 20) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+  mic: (c = '#fff', s = 20) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>,
+  micOff: (c = '#ef4444', s = 20) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6"/><path d="M17 16.95A7 7 0 015 12v-2m14 0v2c0 .76-.13 1.49-.35 2.17"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>,
+  video: (c = '#fff', s = 20) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>,
+  videoOff: (c = '#ef4444', s = 20) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 16v1a2 2 0 01-2 2H3a2 2 0 01-2-2V7a2 2 0 012-2h2m5.66 0H14a2 2 0 012 2v3.34l1 1L23 7v10"/><line x1="1" y1="1" x2="23" y2="23"/></svg>,
+  minimize: (c = '#94a3b8', s = 16) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>,
+  expand: (c = '#94a3b8', s = 16) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>,
+  drag: (c = '#475569', s = 14) => <svg width={s} height={s} viewBox="0 0 24 24" fill={c}><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg>,
+};
+
+// ── Ringing Sound ────────────────────────────────
 let ringCtx = null;
 let ringNodes = [];
 
@@ -26,32 +35,18 @@ function playRing() {
       ringCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
     if (ringCtx.state === 'suspended') ringCtx.resume();
-
     const now = ringCtx.currentTime;
-    const osc1 = ringCtx.createOscillator();
-    const osc2 = ringCtx.createOscillator();
+    const osc = ringCtx.createOscillator();
     const gain = ringCtx.createGain();
-
-    osc1.type = 'sine'; osc1.frequency.value = 440;
-    osc2.type = 'sine'; osc2.frequency.value = 480;
-
-    osc1.connect(gain); osc2.connect(gain);
-    gain.connect(ringCtx.destination);
-
-    // Two short rings
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0.2, now + 0.05);
-    gain.gain.setValueAtTime(0.2, now + 0.35);
-    gain.gain.linearRampToValueAtTime(0, now + 0.5);
-    gain.gain.setValueAtTime(0, now + 0.7);
-    gain.gain.linearRampToValueAtTime(0.2, now + 0.75);
-    gain.gain.setValueAtTime(0.2, now + 1.05);
-    gain.gain.linearRampToValueAtTime(0, now + 1.2);
-
-    osc1.start(now); osc1.stop(now + 1.3);
-    osc2.start(now); osc2.stop(now + 1.3);
-
-    ringNodes = [osc1, osc2, gain];
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(440, now);
+    osc.frequency.setValueAtTime(480, now + 0.15);
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+    osc.connect(gain).connect(ringCtx.destination);
+    osc.start(now);
+    osc.stop(now + 0.4);
+    ringNodes.push(osc, gain);
   } catch (_) {}
 }
 
@@ -60,9 +55,7 @@ function stopRing() {
   ringNodes = [];
 }
 
-/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-   VOICE ACTIVITY DETECTION
-â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+// ── Voice Activity Detection ─────────────────────
 function createVAD(stream, onSpeaking) {
   try {
     const ctx = new AudioContext();
@@ -83,9 +76,7 @@ function createVAD(stream, onSpeaking) {
   } catch (_) { return () => {}; }
 }
 
-/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-   CSS ANIMATIONS
-â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+// ── CSS Animations ───────────────────────────────
 const VOICE_CSS = `
 @keyframes vcPulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
@@ -103,19 +94,23 @@ const VOICE_CSS = `
   0%, 100% { background: rgba(7,9,13,0.97); }
   50% { background: rgba(15,20,30,0.97); }
 }
+@keyframes vcPulseRing {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+@keyframes vcSlideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 `;
 
-/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-   AVATAR (local to VoiceRoom)
-â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+// ── Avatar ───────────────────────────────────────
 const COLORS = ["#e53935","#8e24aa","#1565c0","#00838f","#2e7d32","#e65100","#6a1b9a","#ad1457"];
 function VRAvatar({ name, photo, size = 64, speaking }) {
   const n = name || '?';
   const col = COLORS[n.toUpperCase().charCodeAt(0) % COLORS.length];
   const ini = n.trim().split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-  const borderStyle = speaking
-    ? '3px solid #22c55e'
-    : '2px solid rgba(255,255,255,0.15)';
+  const borderStyle = speaking ? '3px solid #22c55e' : '2px solid rgba(255,255,255,0.15)';
   const anim = speaking ? 'vcSpeakGlow 1s ease-in-out infinite' : 'none';
 
   return photo ? (
@@ -142,9 +137,7 @@ function fmtDuration(s) {
   return `${m}:${sec.toString().padStart(2, '0')}`;
 }
 
-/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-   VOICE ROOM (Group War Room)
-â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+// ── VOICE ROOM (Group War Room) ──────────────────
 export default function VoiceRoom({ user, db }) {
   const [inRoom, setInRoom] = useState(false);
   const [peers, setPeers] = useState([]);
@@ -159,53 +152,40 @@ export default function VoiceRoom({ user, db }) {
 
   const updatePeersState = useCallback(() => {
     setPeers(Object.entries(peersRef.current).map(([uid, data]) => ({
-      uid, name: data.name, photoURL: data.photoURL, stream: data.stream,
+      uid, name: data.name, photoURL: data.photoURL,
     })));
   }, []);
 
   const leaveRoom = useCallback(() => {
-    setInRoom(false);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
     }
-    setStream(null);
-    streamRef.current = null;
-
     Object.values(peersRef.current).forEach(p => {
       try { p.peer.destroy(); } catch (_) {}
     });
     peersRef.current = {};
-    updatePeersState();
-
-    // Cleanup VAD
     Object.values(vadCleanups.current).forEach(fn => fn());
     vadCleanups.current = {};
+    setPeers([]);
+    setStream(null);
+    setInRoom(false);
     setSpeakingUsers(new Set());
-
-    remove(ref(db, `voice_lobby/${user.uid}`));
-    off(ref(db, `voice_signals/${user.uid}`));
-    off(ref(db, 'voice_lobby'));
-    window.removeEventListener('beforeunload', leaveRoom);
-  }, [db, user.uid, updatePeersState]);
+    if (user?.uid) {
+      remove(ref(db, `voice_lobby/${user.uid}`)).catch(() => {});
+      remove(ref(db, `voice_signals/${user.uid}`)).catch(() => {});
+    }
+  }, [db, user]);
 
   useEffect(() => {
-    return () => { if (streamRef.current) leaveRoom(); };
-  }, [leaveRoom]);
-
-  const toggleMute = () => {
-    if (streamRef.current) {
-      const t = streamRef.current.getAudioTracks()[0];
-      if (t) { t.enabled = !t.enabled; setIsMuted(!t.enabled); }
-    }
-  };
-
-  const toggleDeafen = () => setIsDeafened(prev => !prev);
+    return () => {
+      if (inRoom) leaveRoom();
+    };
+  }, []);
 
   const createPeer = useCallback((targetUid, userInfo) => {
-    const peer = new Peer({
-      initiator: true, trickle: true, stream: streamRef.current,
-      config: { iceServers: ICE_SERVERS },
-    });
+    if (!streamRef.current) return null;
+    const peer = new Peer({ initiator: true, trickle: true, stream: streamRef.current, config: { iceServers: ICE_SERVERS } });
 
     peer.on('signal', signal => {
       push(ref(db, `voice_signals/${targetUid}`), {
@@ -214,29 +194,25 @@ export default function VoiceRoom({ user, db }) {
     });
 
     peer.on('stream', remoteStream => {
-      if (peersRef.current[targetUid]) {
-        peersRef.current[targetUid].stream = remoteStream;
-        updatePeersState();
-        // Start VAD for this peer
-        vadCleanups.current[targetUid] = createVAD(remoteStream, (speaking) => {
-          setSpeakingUsers(prev => {
-            const next = new Set(prev);
-            speaking ? next.add(targetUid) : next.delete(targetUid);
-            return next;
-          });
+      const audio = new Audio();
+      audio.srcObject = remoteStream;
+      audio.play().catch(() => {});
+      vadCleanups.current[targetUid] = createVAD(remoteStream, (speaking) => {
+        setSpeakingUsers(prev => {
+          const next = new Set(prev);
+          speaking ? next.add(targetUid) : next.delete(targetUid);
+          return next;
         });
-      }
+      });
     });
 
     peer.on('close', () => {
-      if (vadCleanups.current[targetUid]) { vadCleanups.current[targetUid](); delete vadCleanups.current[targetUid]; }
       delete peersRef.current[targetUid];
+      if (vadCleanups.current[targetUid]) { vadCleanups.current[targetUid](); delete vadCleanups.current[targetUid]; }
       updatePeersState();
     });
 
-    peer.on('error', (err) => {
-      console.warn('Peer error:', err);
-      if (vadCleanups.current[targetUid]) { vadCleanups.current[targetUid](); delete vadCleanups.current[targetUid]; }
+    peer.on('error', () => {
       delete peersRef.current[targetUid];
       updatePeersState();
     });
@@ -245,45 +221,42 @@ export default function VoiceRoom({ user, db }) {
   }, [db, user, updatePeersState]);
 
   const addPeer = useCallback((incomingSignal, callerUid) => {
-    const peer = new Peer({
-      initiator: false, trickle: true, stream: streamRef.current,
-      config: { iceServers: ICE_SERVERS },
-    });
+    if (!streamRef.current) return null;
+    const peer = new Peer({ initiator: false, trickle: true, stream: streamRef.current, config: { iceServers: ICE_SERVERS } });
 
     peer.on('signal', signal => {
-      push(ref(db, `voice_signals/${callerUid}`), { from: user.uid, signal });
+      push(ref(db, `voice_signals/${callerUid}`), {
+        from: user.uid, fromName: user.name, fromPhoto: user.photoURL, signal,
+      });
     });
 
     peer.on('stream', remoteStream => {
-      if (peersRef.current[callerUid]) {
-        peersRef.current[callerUid].stream = remoteStream;
-        updatePeersState();
-        vadCleanups.current[callerUid] = createVAD(remoteStream, (speaking) => {
-          setSpeakingUsers(prev => {
-            const next = new Set(prev);
-            speaking ? next.add(callerUid) : next.delete(callerUid);
-            return next;
-          });
+      const audio = new Audio();
+      audio.srcObject = remoteStream;
+      audio.play().catch(() => {});
+      vadCleanups.current[callerUid] = createVAD(remoteStream, (speaking) => {
+        setSpeakingUsers(prev => {
+          const next = new Set(prev);
+          speaking ? next.add(callerUid) : next.delete(callerUid);
+          return next;
         });
-      }
+      });
     });
 
-    peer.signal(incomingSignal);
-
     peer.on('close', () => {
-      if (vadCleanups.current[callerUid]) { vadCleanups.current[callerUid](); delete vadCleanups.current[callerUid]; }
       delete peersRef.current[callerUid];
+      if (vadCleanups.current[callerUid]) { vadCleanups.current[callerUid](); delete vadCleanups.current[callerUid]; }
       updatePeersState();
     });
 
     peer.on('error', () => {
-      if (vadCleanups.current[callerUid]) { vadCleanups.current[callerUid](); delete vadCleanups.current[callerUid]; }
       delete peersRef.current[callerUid];
       updatePeersState();
     });
 
+    peer.signal(incomingSignal);
     return peer;
-  }, [db, user.uid, updatePeersState]);
+  }, [db, user, updatePeersState]);
 
   const joinRoom = async () => {
     try {
@@ -296,7 +269,6 @@ export default function VoiceRoom({ user, db }) {
       await set(myRef, { name: user.name, photoURL: user.photoURL, joinedAt: Date.now() });
       onDisconnect(myRef).remove();
 
-      // Listen for signals
       const signalsRef = ref(db, `voice_signals/${user.uid}`);
       onChildAdded(signalsRef, (snap) => {
         const data = snap.val();
@@ -309,179 +281,109 @@ export default function VoiceRoom({ user, db }) {
           peersRef.current[data.from] = { peer, name: data.fromName, photoURL: data.fromPhoto };
           updatePeersState();
         }
-        remove(ref(db, `voice_signals/${user.uid}/${snap.key}`));
       });
 
-      // Listen to lobby
       const lobbyRef = ref(db, 'voice_lobby');
       onValue(lobbyRef, (snap) => {
-        const currentLobby = snap.val() || {};
-        const currentKeys = new Set(Object.keys(currentLobby));
-        Object.keys(peersRef.current).forEach(uid => {
-          if (!currentKeys.has(uid)) {
-            try { peersRef.current[uid].peer.destroy(); } catch (_) {}
-            if (vadCleanups.current[uid]) { vadCleanups.current[uid](); delete vadCleanups.current[uid]; }
-            delete peersRef.current[uid];
-          }
-        });
-        Object.keys(currentLobby).forEach(otherUid => {
-          if (otherUid !== user.uid && !peersRef.current[otherUid]) {
-            if (user.uid > otherUid) {
-              const peer = createPeer(otherUid, currentLobby[otherUid]);
-              peersRef.current[otherUid] = { peer, name: currentLobby[otherUid].name, photoURL: currentLobby[otherUid].photoURL };
+        const lobby = snap.val() || {};
+        Object.entries(lobby).forEach(([uid, info]) => {
+          if (uid !== user.uid && !peersRef.current[uid]) {
+            const peer = createPeer(uid, info);
+            if (peer) {
+              peersRef.current[uid] = { peer, name: info.name, photoURL: info.photoURL };
+              updatePeersState();
             }
           }
         });
-        updatePeersState();
       });
-
-      window.addEventListener('beforeunload', leaveRoom);
     } catch (err) {
-      console.error(err);
-      alert('Could not access microphone.');
+      alert('Microphone access denied.');
     }
   };
 
-  return (
-    <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
-      <style>{VOICE_CSS}</style>
-      <div style={{ padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{
-          fontSize: 11, fontWeight: 700, color: '#334155',
-          letterSpacing: '.12em', textTransform: 'uppercase',
-        }}>
-          SQUAD WAR ROOM
-        </span>
-        {inRoom && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{
-              width: 6, height: 6, borderRadius: '50%', background: '#ef4444',
-              boxShadow: '0 0 8px #ef4444',
-            }} />
-            <span style={{
-              fontSize: 12, fontWeight: 800, color: '#ef4444', letterSpacing: '0.04em',
-            }}>
-              LIVE
-            </span>
-          </div>
-        )}
-      </div>
+  const toggleMute = () => {
+    if (streamRef.current) {
+      const t = streamRef.current.getAudioTracks()[0];
+      if (t) { t.enabled = !t.enabled; setIsMuted(!t.enabled); }
+    }
+  };
 
-      <div style={{
-        flex: 1, background: 'rgba(255,255,255,0.03)', borderRadius: 18,
-        border: '1px solid rgba(255,255,255,0.08)', padding: 20,
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      }}>
-        {!inRoom ? (
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>ðŸŽ™ï¸</div>
-            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8, color: '#e2e8f0' }}>
-              Join the Live War Room
+  const toggleDeafen = () => setIsDeafened(!isDeafened);
+
+  return (
+    <div style={{
+      padding: 20, display: 'flex', flexDirection: 'column',
+      alignItems: 'center', gap: 20, height: '100%',
+    }}>
+      <style>{VOICE_CSS}</style>
+      {!inRoom ? (
+        <div style={{ textAlign: 'center', padding: '40px 0' }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>{Icons.mic('#64748b', 48)}</div>
+          <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 8, color: '#e2e8f0' }}>
+            Join the Live War Room
+          </div>
+          <div style={{
+            fontSize: 13, color: '#94a3b8', marginBottom: 28,
+            maxWidth: 260, lineHeight: 1.6, margin: '0 auto 28px',
+          }}>
+            Jump in to talk with anyone else in the room. Audio connects instantly with trickle ICE.
+          </div>
+          <button onClick={joinRoom} style={{
+            padding: '14px 32px', background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+            color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 800,
+            cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 10,
+            boxShadow: '0 8px 24px rgba(34,197,94,0.3)', transition: 'all 0.15s',
+            letterSpacing: '0.03em',
+          }}>
+            {Icons.mic('#fff', 18)} CONNECT NOW
+          </button>
+        </div>
+      ) : (
+        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24 }}>
+          <div style={{
+            display: 'flex', flexWrap: 'wrap', gap: 20, justifyContent: 'center', width: '100%',
+          }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+              <VRAvatar name={user.name} photo={user.photoURL} size={64} speaking={false} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1' }}>You</span>
+              {isMuted && <span style={{ fontSize: 9, color: '#ef4444', fontWeight: 600 }}>MUTED</span>}
             </div>
-            <div style={{
-              fontSize: 12, color: '#94a3b8', marginBottom: 24,
-              maxWidth: 240, lineHeight: 1.5, margin: '0 auto 24px',
+            {peers.map(p => (
+              <div key={p.uid} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                <VRAvatar name={p.name} photo={p.photoURL} size={64} speaking={speakingUsers.has(p.uid)} />
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1' }}>{p.name?.split(' ')[0]}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <button onClick={toggleMute} style={{
+              width: 54, height: 54, borderRadius: '50%',
+              background: isMuted ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.06)',
+              border: `1px solid ${isMuted ? 'rgba(239,68,68,0.3)' : 'rgba(255,255,255,0.12)'}`,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'all 0.2s',
             }}>
-              Jump in to talk with anyone else in the room. Audio connects instantly with trickle ICE.
-            </div>
-            <button onClick={joinRoom} style={{
-              padding: '14px 28px', background: '#22c55e', color: '#fff',
-              border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 800,
-              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8,
-              boxShadow: '0 8px 24px rgba(34,197,94,0.3)', transition: 'all 0.15s',
+              {isMuted ? Icons.micOff('#ef4444', 22) : Icons.mic('#e2e8f0', 22)}
+            </button>
+            <button onClick={leaveRoom} style={{
+              padding: '0 24px', height: 54, background: '#ef4444', color: '#fff',
+              border: 'none', borderRadius: 27, fontSize: 14, fontWeight: 800,
+              cursor: 'pointer', display: 'flex', alignItems: 'center',
+              justifyContent: 'center', boxShadow: '0 4px 14px rgba(239,68,68,0.4)',
+              gap: 8, letterSpacing: '0.03em',
             }}>
-              CONNECT NOW
+              {Icons.phoneOff('#fff', 18)} LEAVE
             </button>
           </div>
-        ) : (
-          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            {/* Connected users */}
-            <div style={{
-              display: 'flex', flexWrap: 'wrap', gap: 20, justifyContent: 'center',
-              width: '100%', marginBottom: 30,
-            }}>
-              {/* Self */}
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                <VRAvatar name={user.name} photo={user.photoURL} size={64} speaking={false} />
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1' }}>You</span>
-                {isMuted && (
-                  <span style={{ fontSize: 9, color: '#ef4444', fontWeight: 600 }}>MUTED</span>
-                )}
-              </div>
-
-              {peers.map(p => (
-                <div key={p.uid} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                  <VRAvatar
-                    name={p.name} photo={p.photoURL} size={64}
-                    speaking={speakingUsers.has(p.uid)}
-                  />
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8' }}>
-                    {(p.name || 'Unknown').split(' ')[0]}
-                  </span>
-                  <audio
-                    ref={el => {
-                      if (el && p.stream && el.srcObject !== p.stream) {
-                        el.srcObject = p.stream;
-                        try { el.play().catch(() => {}); } catch (_) {}
-                      }
-                    }}
-                    autoPlay playsInline muted={isDeafened}
-                  />
-                </div>
-              ))}
-
-              {peers.length === 0 && (
-                <div style={{
-                  fontSize: 12, color: '#64748b', fontStyle: 'italic', padding: 20,
-                }}>
-                  Waiting for others to join...
-                </div>
-              )}
-            </div>
-
-            {/* Controls */}
-            <div style={{ display: 'flex', gap: 14 }}>
-              <button onClick={toggleMute} style={{
-                width: 54, height: 54, borderRadius: '50%',
-                background: isMuted ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.08)',
-                border: `1px solid ${isMuted ? '#ef4444' : 'rgba(255,255,255,0.15)'}`,
-                color: isMuted ? '#ef4444' : '#fff', cursor: 'pointer', fontSize: 20,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                transition: 'all 0.2s',
-              }}>
-                {isMuted ? 'ðŸ”‡' : 'ðŸŽ¤'}
-              </button>
-              <button onClick={toggleDeafen} style={{
-                width: 54, height: 54, borderRadius: '50%',
-                background: isDeafened ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.08)',
-                border: `1px solid ${isDeafened ? '#ef4444' : 'rgba(255,255,255,0.15)'}`,
-                color: isDeafened ? '#ef4444' : '#fff', cursor: 'pointer', fontSize: 20,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                transition: 'all 0.2s',
-              }}>
-                {isDeafened ? 'ðŸ”•' : 'ðŸ”Š'}
-              </button>
-              <button onClick={leaveRoom} style={{
-                padding: '0 24px', height: 54, background: '#ef4444', color: '#fff',
-                border: 'none', borderRadius: 27, fontSize: 14, fontWeight: 800,
-                cursor: 'pointer', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', boxShadow: '0 4px 14px rgba(239,68,68,0.4)',
-                transition: 'all 0.15s',
-              }}>
-                END
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
 
-/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-   CALL OVERLAY (1-on-1 Calls â€” Floating)
-   Mounted at App level, always listens for calls
-â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+
+// ── CALL OVERLAY (1-on-1 Calls - Floating + Draggable) ──
+
 export function CallOverlay({ user, db }) {
   const [incomingCall, setIncomingCall] = useState(null);
   const [activeCall, setActiveCall] = useState(null);
@@ -493,6 +395,11 @@ export function CallOverlay({ user, db }) {
   const [remoteSpeaking, setRemoteSpeaking] = useState(false);
   const [callStatus, setCallStatus] = useState('');
 
+  // Drag state
+  const [dragPos, setDragPos] = useState({ x: 16, y: 80 });
+  const isDragging = useRef(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
+
   const peerRef = useRef(null);
   const streamRef = useRef(null);
   const timerRef = useRef(null);
@@ -502,7 +409,39 @@ export function CallOverlay({ user, db }) {
   const activeCallRef = useRef(null);
   const handledCallIds = useRef(new Set());
 
-  /* â”€â”€ Cleanup everything â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  // ── Dragging handlers ──
+  const onDragStart = useCallback((e) => {
+    isDragging.current = true;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    dragOffset.current = { x: clientX - dragPos.x, y: clientY - dragPos.y };
+    e.preventDefault();
+  }, [dragPos]);
+
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!isDragging.current) return;
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      setDragPos({
+        x: Math.max(0, Math.min(window.innerWidth - 180, clientX - dragOffset.current.x)),
+        y: Math.max(0, Math.min(window.innerHeight - 100, clientY - dragOffset.current.y)),
+      });
+    };
+    const onUp = () => { isDragging.current = false; };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onUp);
+    };
+  }, []);
+
+  // ── Cleanup ──
   const fullCleanup = useCallback(() => {
     if (peerRef.current) { try { peerRef.current.destroy(); } catch (_) {} peerRef.current = null; }
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
@@ -513,18 +452,15 @@ export function CallOverlay({ user, db }) {
     stopRing();
   }, []);
 
-  /* â”€â”€ End call (removes from Firebase) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  // ── End call ──
   const endCall = useCallback(() => {
     const callId = activeCallRef.current?.id;
     fullCleanup();
-
-    // REMOVE from Firebase entirely so listeners don't re-detect
     if (callId) {
       remove(ref(db, `calls/${callId}`)).catch(() => {});
       remove(ref(db, `call_signals/${callId}`)).catch(() => {});
       handledCallIds.current.add(callId);
     }
-
     setActiveCall(null);
     activeCallRef.current = null;
     setIncomingCall(null);
@@ -537,24 +473,20 @@ export function CallOverlay({ user, db }) {
     setCallStatus('');
   }, [db, fullCleanup]);
 
-  /* â”€â”€ Setup WebRTC peer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  // ── Setup WebRTC peer ──
   const setupPeer = useCallback((callId, isInitiator, mediaStream) => {
     if (peerRef.current) { try { peerRef.current.destroy(); } catch (_) {} }
-
     const peer = new Peer({
       initiator: isInitiator, trickle: true, stream: mediaStream,
       config: { iceServers: ICE_SERVERS },
     });
-
     peer.on('signal', signal => {
       push(ref(db, `call_signals/${callId}`), { from: user.uid, signal });
     });
-
     peer.on('stream', rs => {
       setRemoteStream(rs);
       vadCleanupRef.current = createVAD(rs, setRemoteSpeaking);
     });
-
     peer.on('connect', () => {
       setCallStatus('active');
       if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
@@ -562,33 +494,26 @@ export function CallOverlay({ user, db }) {
         timerRef.current = setInterval(() => setCallDuration(d => d + 1), 1000);
       }
     });
-
     peer.on('close', () => endCall());
-    peer.on('error', (err) => { console.warn('Peer error:', err); });
-
+    peer.on('error', () => {});
     peerRef.current = peer;
-
-    // Listen for signals
     onChildAdded(ref(db, `call_signals/${callId}`), snap => {
       const d = snap.val();
       if (d && d.from !== user.uid && peerRef.current) {
-        try { peerRef.current.signal(d.signal); } catch (e) { console.warn('Signal err:', e); }
+        try { peerRef.current.signal(d.signal); } catch (_) {}
       }
     });
-
     return peer;
   }, [db, user, endCall]);
 
-  /* â”€â”€ SINGLE unified Firebase listener â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  // ── Single Firebase listener ──
   useEffect(() => {
     if (!user) return;
     const callsRef = ref(db, 'calls');
-
     const handler = onValue(callsRef, async (snap) => {
       const data = snap.val();
       if (!data) return;
 
-      // If we have an active call, check if it was ended by the other party
       if (activeCallRef.current) {
         const myCall = data[activeCallRef.current.id];
         if (!myCall || myCall.status === 'ended' || myCall.status === 'declined' || myCall.status === 'missed') {
@@ -599,19 +524,14 @@ export function CallOverlay({ user, db }) {
         return;
       }
 
-      // Skip if we have an incoming call already showing
       if (incomingCall) return;
-
       const now = Date.now();
 
-      // Check for INCOMING call (someone calling us)
+      // Incoming
       const incoming = Object.entries(data).find(([id, c]) =>
-        c.receiver === user.uid &&
-        c.status === 'ringing' &&
-        !handledCallIds.current.has(id) &&
-        (now - (c.startedAt || 0)) < 60000 // Ignore calls older than 60s
+        c.receiver === user.uid && c.status === 'ringing' &&
+        !handledCallIds.current.has(id) && (now - (c.startedAt || 0)) < 60000
       );
-
       if (incoming) {
         const [callId, callData] = incoming;
         setIncomingCall({ id: callId, ...callData });
@@ -622,34 +542,26 @@ export function CallOverlay({ user, db }) {
         return;
       }
 
-      // Check for OUTGOING call (I initiated from DMs)
+      // Outgoing
       const outgoing = Object.entries(data).find(([id, c]) =>
-        c.caller === user.uid &&
-        c.status === 'ringing' &&
-        !handledCallIds.current.has(id) &&
-        !activeCallRef.current &&
+        c.caller === user.uid && c.status === 'ringing' &&
+        !handledCallIds.current.has(id) && !activeCallRef.current &&
         (now - (c.startedAt || 0)) < 60000
       );
-
       if (outgoing) {
         const [callId, callData] = outgoing;
         handledCallIds.current.add(callId);
-
         try {
           const mediaStream = await navigator.mediaDevices.getUserMedia({
             audio: true, video: callData.type === 'video',
           });
           streamRef.current = mediaStream;
           setIsVideoOn(callData.type === 'video');
-
           const call = { id: callId, ...callData, direction: 'outgoing' };
           setActiveCall(call);
           activeCallRef.current = call;
           setCallStatus('calling');
-
           setupPeer(callId, true, mediaStream);
-
-          // 30s timeout
           timeoutRef.current = setTimeout(() => {
             if (activeCallRef.current?.id === callId) {
               update(ref(db, `calls/${callId}`), { status: 'missed' }).catch(() => {});
@@ -657,54 +569,45 @@ export function CallOverlay({ user, db }) {
             }
           }, 30000);
         } catch (err) {
-          console.error('Call setup failed:', err);
           remove(ref(db, `calls/${callId}`)).catch(() => {});
           alert('Could not access microphone/camera.');
         }
       }
     });
-
     return () => off(callsRef);
   }, [db, user, endCall, setupPeer, incomingCall, callStatus]);
 
-  /* â”€â”€ Accept incoming call â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  // ── Accept call ──
   const acceptCall = useCallback(async () => {
     if (!incomingCall) return;
     clearInterval(ringIntervalRef.current);
     ringIntervalRef.current = null;
     stopRing();
-
     const callId = incomingCall.id;
     handledCallIds.current.add(callId);
-
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: true, video: incomingCall.type === 'video',
       });
       streamRef.current = mediaStream;
       setIsVideoOn(incomingCall.type === 'video');
-
       await update(ref(db, `calls/${callId}`), { status: 'active' });
-
       const call = { ...incomingCall, direction: 'incoming' };
       setActiveCall(call);
       activeCallRef.current = call;
       setIncomingCall(null);
       setCallStatus('connecting');
-
       setupPeer(callId, false, mediaStream);
-
       if (!timerRef.current) {
         timerRef.current = setInterval(() => setCallDuration(d => d + 1), 1000);
       }
     } catch (err) {
-      console.error('Accept failed:', err);
       alert('Could not access microphone/camera.');
       endCall();
     }
   }, [incomingCall, db, setupPeer, endCall]);
 
-  /* â”€â”€ Decline incoming call â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  // ── Decline call ──
   const declineCall = useCallback(() => {
     if (!incomingCall) return;
     clearInterval(ringIntervalRef.current);
@@ -715,7 +618,7 @@ export function CallOverlay({ user, db }) {
     setIncomingCall(null);
   }, [incomingCall, db]);
 
-  /* â”€â”€ Auto-timeout incoming (30s) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  // ── Auto-timeout incoming ──
   useEffect(() => {
     if (!incomingCall) return;
     const timer = setTimeout(() => {
@@ -729,7 +632,7 @@ export function CallOverlay({ user, db }) {
     return () => clearTimeout(timer);
   }, [incomingCall, db]);
 
-  /* â”€â”€ Toggle mute â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  // ── Toggle mute ──
   const toggleMute = () => {
     if (streamRef.current) {
       const t = streamRef.current.getAudioTracks()[0];
@@ -737,183 +640,215 @@ export function CallOverlay({ user, db }) {
     }
   };
 
-  /* â”€â”€ Toggle camera â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  // ── Toggle camera ──
   const toggleCamera = async () => {
     if (!streamRef.current) return;
-    const videoTrack = streamRef.current.getVideoTracks()[0];
-    if (videoTrack) {
-      videoTrack.enabled = !videoTrack.enabled;
-      setIsVideoOn(videoTrack.enabled);
-    }
+    const vt = streamRef.current.getVideoTracks()[0];
+    if (vt) { vt.enabled = !vt.enabled; setIsVideoOn(vt.enabled); }
   };
 
-  /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-     RENDER
-  â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+  // ── RENDER ──
   if (!user || (!incomingCall && !activeCall)) return <style>{VOICE_CSS}</style>;
 
   const otherName = activeCall
     ? (activeCall.direction === 'outgoing' ? activeCall.receiverName : activeCall.callerName)
     : incomingCall?.callerName;
-
   const otherPhoto = activeCall
     ? (activeCall.direction === 'outgoing' ? activeCall.receiverPhoto : activeCall.callerPhoto)
     : incomingCall?.callerPhoto;
+
+  // ── Button helper ──
+  const CallBtn = ({ onClick, bg, border, children, title, size = 44 }) => (
+    <button onClick={onClick} title={title} style={{
+      width: size, height: size, borderRadius: '50%', background: bg,
+      border: border || 'none', color: '#fff', cursor: 'pointer',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      transition: 'all 0.15s', flexShrink: 0,
+    }}>
+      {children}
+    </button>
+  );
 
   return (
     <>
       <style>{VOICE_CSS}</style>
 
-      {/* â”€â”€ INCOMING CALL SCREEN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* INCOMING CALL */}
       {incomingCall && !activeCall && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 10000,
           display: 'flex', flexDirection: 'column', alignItems: 'center',
           justifyContent: 'center', padding: 24,
-          background: 'rgba(7,9,13,0.97)',
-          animation: 'vcIncomingBg 2s ease-in-out infinite',
+          background: 'radial-gradient(ellipse at center, rgba(15,20,30,0.98), rgba(7,9,13,0.99))',
+          animation: 'vcSlideUp 0.3s ease-out',
         }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+          {/* Pulse rings */}
+          <div style={{ position: 'relative', marginBottom: 24 }}>
             <div style={{
-              fontSize: 12, fontWeight: 600, color: '#94a3b8',
-              letterSpacing: '0.12em', textTransform: 'uppercase',
-              fontFamily: "'JetBrains Mono',monospace",
-            }}>
-              INCOMING {incomingCall.type === 'video' ? 'VIDEO' : 'AUDIO'} CALL
-            </div>
-            <div style={{ animation: 'vcRingPulse 1.5s ease-in-out infinite' }}>
-              <VRAvatar name={incomingCall.callerName} photo={incomingCall.callerPhoto} size={96} />
-            </div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: '#f1f5f9' }}>
-              {incomingCall.callerName}
-            </div>
+              position: 'absolute', inset: -20, borderRadius: '50%',
+              border: '2px solid rgba(34,197,94,0.3)',
+              animation: 'vcPulseRing 2s ease-out infinite',
+            }} />
+            <div style={{
+              position: 'absolute', inset: -20, borderRadius: '50%',
+              border: '2px solid rgba(34,197,94,0.2)',
+              animation: 'vcPulseRing 2s ease-out infinite 0.5s',
+            }} />
+            <VRAvatar name={incomingCall.callerName} photo={incomingCall.callerPhoto} size={100} />
+          </div>
 
-            <div style={{ display: 'flex', gap: 40, marginTop: 30 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-                <button onClick={declineCall} style={{
-                  width: 64, height: 64, borderRadius: '50%',
-                  background: '#ef4444', border: 'none', color: '#fff',
-                  fontSize: 24, cursor: 'pointer', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center',
-                  boxShadow: '0 4px 20px rgba(239,68,68,0.4)',
-                }}>
-                  âœ•
-                </button>
-                <span style={{ fontSize: 11, fontWeight: 600, color: '#ef4444' }}>Decline</span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-                <button onClick={acceptCall} style={{
-                  width: 64, height: 64, borderRadius: '50%',
-                  background: '#22c55e', border: 'none', color: '#fff',
-                  fontSize: 24, cursor: 'pointer', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center',
-                  boxShadow: '0 4px 20px rgba(34,197,94,0.4)',
-                }}>
-                  âœ“
-                </button>
-                <span style={{ fontSize: 11, fontWeight: 600, color: '#22c55e' }}>Accept</span>
-              </div>
+          <div style={{
+            fontSize: 11, fontWeight: 700, color: '#64748b',
+            letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 8,
+            fontFamily: "'JetBrains Mono',monospace",
+          }}>
+            INCOMING {incomingCall.type === 'video' ? 'VIDEO' : 'VOICE'} CALL
+          </div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: '#f1f5f9', marginBottom: 40 }}>
+            {incomingCall.callerName}
+          </div>
+
+          <div style={{ display: 'flex', gap: 60 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+              <CallBtn onClick={declineCall} bg="#ef4444" size={64}>
+                {Icons.phoneOff('#fff', 26)}
+              </CallBtn>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#ef4444' }}>Decline</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+              <CallBtn onClick={acceptCall} bg="#22c55e" size={64}>
+                {Icons.phone('#fff', 26)}
+              </CallBtn>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#22c55e' }}>Accept</span>
             </div>
           </div>
         </div>
       )}
 
-      {/* â”€â”€ ACTIVE CALL FLOATING OVERLAY â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ACTIVE CALL - DRAGGABLE OVERLAY */}
       {activeCall && (
         <div style={{
           position: 'fixed',
-          bottom: minimized ? 80 : 16,
-          right: 16,
+          left: minimized ? undefined : dragPos.x,
+          top: minimized ? undefined : dragPos.y,
+          right: minimized ? 16 : undefined,
+          bottom: minimized ? 76 : undefined,
           zIndex: 9000,
-          width: minimized ? 160 : 300,
-          background: 'rgba(17,19,24,0.97)',
-          border: '1px solid rgba(255,255,255,0.1)',
-          borderRadius: minimized ? 24 : 18,
-          padding: minimized ? '8px 14px' : 16,
-          boxShadow: '0 8px 40px rgba(0,0,0,0.6)',
-          backdropFilter: 'blur(12px)',
-          transition: 'all 0.3s ease',
+          width: minimized ? 180 : 320,
+          background: minimized
+            ? 'rgba(17,19,24,0.95)'
+            : 'linear-gradient(180deg, rgba(17,19,24,0.98), rgba(10,12,18,0.99))',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: minimized ? 28 : 20,
+          padding: minimized ? '10px 14px' : 0,
+          boxShadow: '0 12px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.05)',
+          backdropFilter: 'blur(20px)',
+          transition: isDragging.current ? 'none' : 'all 0.3s cubic-bezier(0.22,1,0.36,1)',
+          cursor: minimized ? 'pointer' : 'default',
+          userSelect: 'none',
+          overflow: 'hidden',
         }}>
           {minimized ? (
             <div onClick={() => setMinimized(false)} style={{
-              display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 10,
             }}>
               <div style={{
                 width: 8, height: 8, borderRadius: '50%', background: '#22c55e',
-                animation: 'vcPulse 2s ease-in-out infinite',
+                animation: 'vcPulse 2s ease-in-out infinite', flexShrink: 0,
               }} />
               <span style={{
-                fontSize: 12, fontWeight: 700, color: '#e2e8f0',
-                fontFamily: "'JetBrains Mono',monospace",
+                fontSize: 13, fontWeight: 700, color: '#e2e8f0',
+                fontFamily: "'JetBrains Mono',monospace", letterSpacing: '0.05em',
               }}>
                 {fmtDuration(callDuration)}
               </span>
-              <VRAvatar name={otherName || ''} photo={otherPhoto} size={24} />
+              <div style={{ marginLeft: 'auto' }}>
+                <VRAvatar name={otherName || ''} photo={otherPhoto} size={28} speaking={remoteSpeaking} />
+              </div>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%',
-              }}>
-                <span style={{
-                  fontSize: 10, fontWeight: 600,
-                  color: callStatus === 'active' ? '#22c55e' : '#f59e0b',
-                  letterSpacing: '0.1em', fontFamily: "'JetBrains Mono',monospace",
-                }}>
-                  {callStatus === 'calling' ? 'CALLINGâ€¦' : callStatus === 'connecting' ? 'CONNECTINGâ€¦' : fmtDuration(callDuration)}
-                </span>
+            <>
+              {/* Drag handle */}
+              <div
+                onMouseDown={onDragStart}
+                onTouchStart={onDragStart}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 14px',
+                  borderBottom: '1px solid rgba(255,255,255,0.06)',
+                  cursor: 'grab',
+                  background: 'rgba(255,255,255,0.02)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {Icons.drag()}
+                  <span style={{
+                    fontSize: 11, fontWeight: 700,
+                    color: callStatus === 'active' ? '#22c55e' : '#f59e0b',
+                    letterSpacing: '0.1em',
+                    fontFamily: "'JetBrains Mono',monospace",
+                  }}>
+                    {callStatus === 'calling' ? 'CALLING...' : callStatus === 'connecting' ? 'CONNECTING...' : fmtDuration(callDuration)}
+                  </span>
+                </div>
                 <button onClick={() => setMinimized(true)} style={{
-                  background: 'none', border: 'none', color: '#64748b', fontSize: 14, cursor: 'pointer',
-                }}>â–¼</button>
+                  background: 'none', border: 'none', cursor: 'pointer', padding: 4,
+                  display: 'flex', alignItems: 'center',
+                }}>
+                  {Icons.minimize()}
+                </button>
               </div>
 
+              {/* Avatar area */}
               <div style={{
-                width: '100%', aspectRatio: '16/10', borderRadius: 12,
-                background: '#0a0c12', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', overflow: 'hidden',
+                padding: '20px 16px 12px', display: 'flex', flexDirection: 'column',
+                alignItems: 'center', gap: 10,
               }}>
-                <VRAvatar name={otherName || ''} photo={otherPhoto} size={56} speaking={remoteSpeaking} />
+                <div style={{ position: 'relative' }}>
+                  <VRAvatar name={otherName || ''} photo={otherPhoto} size={72} speaking={remoteSpeaking} />
+                  {remoteSpeaking && (
+                    <div style={{
+                      position: 'absolute', inset: -4, borderRadius: '50%',
+                      border: '2px solid rgba(34,197,94,0.4)',
+                      animation: 'vcPulse 1.5s ease-in-out infinite',
+                    }} />
+                  )}
+                </div>
+                <span style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0' }}>{otherName}</span>
                 {remoteStream && (
                   <audio ref={el => { if (el && el.srcObject !== remoteStream) { el.srcObject = remoteStream; el.play().catch(() => {}); } }} autoPlay playsInline style={{ display: 'none' }} />
                 )}
               </div>
 
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>{otherName}</span>
-
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={toggleMute} style={{
-                  width: 40, height: 40, borderRadius: '50%',
-                  background: isMuted ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.08)',
-                  border: `1px solid ${isMuted ? '#ef4444' : 'rgba(255,255,255,0.15)'}`,
-                  color: isMuted ? '#ef4444' : '#e2e8f0', fontSize: 16, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  {isMuted ? 'ðŸ”‡' : 'ðŸŽ¤'}
-                </button>
-                <button onClick={toggleCamera} style={{
-                  width: 40, height: 40, borderRadius: '50%',
-                  background: isVideoOn ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.08)',
-                  border: `1px solid ${isVideoOn ? '#3b82f6' : 'rgba(255,255,255,0.15)'}`,
-                  color: isVideoOn ? '#3b82f6' : '#e2e8f0', fontSize: 16, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  {isVideoOn ? 'ðŸ“¹' : 'ðŸ“·'}
-                </button>
-                <button onClick={endCall} style={{
-                  width: 40, height: 40, borderRadius: '50%',
-                  background: '#ef4444', border: 'none', color: '#fff',
-                  fontSize: 16, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  boxShadow: '0 2px 10px rgba(239,68,68,0.3)',
-                }}>
-                  âœ•
-                </button>
+              {/* Controls */}
+              <div style={{
+                display: 'flex', justifyContent: 'center', gap: 14,
+                padding: '8px 16px 16px',
+              }}>
+                <CallBtn
+                  onClick={toggleMute}
+                  bg={isMuted ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.06)'}
+                  border={`1px solid ${isMuted ? 'rgba(239,68,68,0.3)' : 'rgba(255,255,255,0.1)'}`}
+                  title={isMuted ? 'Unmute' : 'Mute'}
+                >
+                  {isMuted ? Icons.micOff('#ef4444', 20) : Icons.mic('#e2e8f0', 20)}
+                </CallBtn>
+                <CallBtn
+                  onClick={toggleCamera}
+                  bg={isVideoOn ? 'rgba(59,130,246,0.15)' : 'rgba(255,255,255,0.06)'}
+                  border={`1px solid ${isVideoOn ? 'rgba(59,130,246,0.3)' : 'rgba(255,255,255,0.1)'}`}
+                  title={isVideoOn ? 'Camera Off' : 'Camera On'}
+                >
+                  {isVideoOn ? Icons.video('#3b82f6', 20) : Icons.videoOff('#94a3b8', 20)}
+                </CallBtn>
+                <CallBtn onClick={endCall} bg="#ef4444" title="End Call">
+                  {Icons.phoneOff('#fff', 20)}
+                </CallBtn>
               </div>
-            </div>
+            </>
           )}
         </div>
       )}
     </>
   );
 }
-
