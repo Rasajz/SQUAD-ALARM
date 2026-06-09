@@ -118,15 +118,21 @@ const VRAvatar = React.memo(function VRAvatar({ name, photo, size = 64, speaking
   if (hasVideo) {
     return (
       <div style={{
-        width: size, height: size, borderRadius: '50%', overflow: 'hidden',
+        width: size * 3, height: size * 1.7, borderRadius: 12, overflow: 'hidden',
         border: borderStyle, animation: anim, flexShrink: 0, background: '#000',
-        position: 'relative'
+        position: 'relative', boxShadow: '0 8px 24px rgba(0,0,0,0.5)'
       }}>
         <video 
           ref={el => { if (el && el.srcObject !== stream) { el.srcObject = stream; } }}
           autoPlay playsInline muted
           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
         />
+        <div style={{
+          position: 'absolute', bottom: 8, left: 8, background: 'rgba(0,0,0,0.6)',
+          padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, color: '#fff'
+        }}>
+          LIVE
+        </div>
       </div>
     );
   }

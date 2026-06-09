@@ -394,13 +394,15 @@ export default function SquadAlarm() {
               const currentToken = await getToken(messaging);
               if (currentToken) {
                 userData.fcmToken = currentToken;
-                await set(ref(db, "users/" + firebaseUser.uid), userData);
               }
             }
           }
         } catch (err) {
           console.warn("FCM Token fetch failed:", err);
         }
+
+        // ALWAYS save the user to the database so they appear in Members/DMs
+        await set(ref(db, "users/" + firebaseUser.uid), userData);
 
         // Set online presence
         try {
@@ -1019,16 +1021,18 @@ export default function SquadAlarm() {
         </div>
       </div>
 
-      <div className="setting-section">
-        <div className="setting-row">
-          <div className="sr-left"><div className="sr-label" style={{color:"#f87171"}}>Clear All Messages</div><div className="sr-sub">Removes all team messages</div></div>
-          <button className="test-btn" style={{color:"#f87171",borderColor:"rgba(239,68,68,.2)"}} onClick={async()=>{if(!confirm("Clear all messages?"))return;await remove(ref(db,"messages"));setMessages([]);}}>Clear</button>
+      {isHost && (
+        <div className="setting-section">
+          <div className="setting-row">
+            <div className="sr-left"><div className="sr-label" style={{color:"#f87171"}}>Clear All Messages</div><div className="sr-sub">Removes all team messages</div></div>
+            <button className="test-btn" style={{color:"#f87171",borderColor:"rgba(239,68,68,.2)"}} onClick={async()=>{if(!confirm("Clear all messages?"))return;await remove(ref(db,"messages"));setMessages([]);}}>Clear</button>
+          </div>
+          <div className="setting-row">
+            <div className="sr-left"><div className="sr-label" style={{color:"#f87171"}}>Clear Alarm Log</div><div className="sr-sub">Removes alarm history</div></div>
+            <button className="test-btn" style={{color:"#f87171",borderColor:"rgba(239,68,68,.2)"}} onClick={async()=>{if(!confirm("Clear alarm log?"))return;await remove(ref(db,"alarm"));await remove(ref(db,"history"));setAlarm(null);setHistory([]);lastId.current="";}}>Clear</button>
+          </div>
         </div>
-        <div className="setting-row">
-          <div className="sr-left"><div className="sr-label" style={{color:"#f87171"}}>Clear Alarm Log</div><div className="sr-sub">Removes alarm history</div></div>
-          <button className="test-btn" style={{color:"#f87171",borderColor:"rgba(239,68,68,.2)"}} onClick={async()=>{if(!confirm("Clear alarm log?"))return;await remove(ref(db,"alarm"));await remove(ref(db,"history"));setAlarm(null);setHistory([]);lastId.current="";}}>Clear</button>
-        </div>
-      </div>
+      )}
       <div style={{height:20}}/>
     </div>
   );
