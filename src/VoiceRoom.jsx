@@ -164,10 +164,9 @@ function fmtDuration(s) {
 // ── VOICE ROOM (Group War Room) ──────────────────
 export default function VoiceRoom({ user, db }) {
   const [inRoom, setInRoom] = useState(false);
-  const [peers, setPeers] = useState([]);
   const [stream, setStream] = useState(null);
+  const [peers, setPeers] = useState([]);
   const [isMuted, setIsMuted] = useState(false);
-  const [isVideoOn, setIsVideoOn] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
   const [speakingUsers, setSpeakingUsers] = useState(new Set());
 
@@ -298,10 +297,7 @@ export default function VoiceRoom({ user, db }) {
 
   const joinRoom = async () => {
     try {
-      const localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-      // Start with video off by default
-      localStream.getVideoTracks().forEach(t => t.enabled = false);
-      setIsVideoOn(false);
+      const localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       setStream(localStream);
       streamRef.current = localStream;
       setInRoom(true);
@@ -374,13 +370,6 @@ export default function VoiceRoom({ user, db }) {
     }
   };
 
-  const toggleVideo = () => {
-    if (streamRef.current) {
-      const t = streamRef.current.getVideoTracks()[0];
-      if (t) { t.enabled = !t.enabled; setIsVideoOn(t.enabled); }
-    }
-  };
-
   const toggleDeafen = () => setIsDeafened(!isDeafened);
 
   return (
@@ -439,15 +428,6 @@ export default function VoiceRoom({ user, db }) {
               transition: 'all 0.2s',
             }}>
               {isMuted ? Icons.micOff('#ef4444', 22) : Icons.mic('#e2e8f0', 22)}
-            </button>
-            <button onClick={toggleVideo} style={{
-              width: 54, height: 54, borderRadius: '50%',
-              background: isVideoOn ? 'rgba(59,130,246,0.15)' : 'rgba(255,255,255,0.06)',
-              border: `1px solid ${isVideoOn ? 'rgba(59,130,246,0.3)' : 'rgba(255,255,255,0.12)'}`,
-              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              transition: 'all 0.2s',
-            }}>
-              {isVideoOn ? Icons.video('#3b82f6', 22) : Icons.videoOff('#94a3b8', 22)}
             </button>
             <button onClick={leaveRoom} style={{
               padding: '0 24px', height: 54, background: '#ef4444', color: '#fff',

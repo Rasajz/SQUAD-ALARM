@@ -1139,7 +1139,9 @@ export default function SquadAlarm() {
         {tab === "home"     && renderHome()}
         {tab === "messages" && renderMessages()}
         {tab === "members"  && renderMembers()}
-        {tab === "calls"    && <DirectMessages user={user} db={db} isHost={isHost} dmTarget={dmTarget} onClearTarget={() => setDmTarget(null)} playPop={playPop} playPing={playPing} />}
+        <div style={{ display: tab === "calls" ? "block" : "none", height: "100%" }}>
+          <DirectMessages user={user} db={db} isHost={isHost} dmTarget={dmTarget} onClearTarget={() => setDmTarget(null)} playPop={playPop} playPing={playPing} />
+        </div>
         {tab === "log"      && renderLog()}
         {tab === "settings" && renderSettings()}
         <div style={{ display: tab === "voice" ? "block" : "none", height: "100%" }}>
