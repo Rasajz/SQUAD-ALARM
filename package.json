@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.0",
+    "@capacitor/core": "^8.4.0",
     "buffer": "^6.0.3",
     "events": "^3.3.0",
     "firebase": "^12.14.0",
@@ -19,6 +21,7 @@
     "simple-peer": "^9.11.1"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
