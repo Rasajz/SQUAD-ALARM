@@ -106,12 +106,30 @@ const VOICE_CSS = `
 
 // ── Avatar ───────────────────────────────────────
 const COLORS = ["#e53935","#8e24aa","#1565c0","#00838f","#2e7d32","#e65100","#6a1b9a","#ad1457"];
-function VRAvatar({ name, photo, size = 64, speaking }) {
+function VRAvatar({ name, photo, size = 64, speaking, stream }) {
   const n = name || '?';
   const col = COLORS[n.toUpperCase().charCodeAt(0) % COLORS.length];
   const ini = n.trim().split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
   const borderStyle = speaking ? '3px solid #22c55e' : '2px solid rgba(255,255,255,0.15)';
   const anim = speaking ? 'vcSpeakGlow 1s ease-in-out infinite' : 'none';
+
+  const hasVideo = stream && stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled;
+
+  if (hasVideo) {
+    return (
+      <div style={{
+        width: size, height: size, borderRadius: '50%', overflow: 'hidden',
+        border: borderStyle, animation: anim, flexShrink: 0, background: '#000',
+        position: 'relative'
+      }}>
+        <video 
+          ref={el => { if (el && el.srcObject !== stream) { el.srcObject = stream; } }}
+          autoPlay playsInline muted
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        />
+      </div>
+    );
+  }
 
   return photo ? (
     <img src={photo} alt={n} style={{
@@ -143,20 +161,26 @@ export default function VoiceRoom({ user, db }) {
   const [peers, setPeers] = useState([]);
   const [stream, setStream] = useState(null);
   const [isMuted, setIsMuted] = useState(false);
+  const [isVideoOn, setIsVideoOn] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
   const [speakingUsers, setSpeakingUsers] = useState(new Set());
 
   const peersRef = useRef({});
   const streamRef = useRef(null);
   const vadCleanups = useRef({});
+  const heartbeatInterval = useRef(null);
 
   const updatePeersState = useCallback(() => {
     setPeers(Object.entries(peersRef.current).map(([uid, data]) => ({
-      uid, name: data.name, photoURL: data.photoURL,
+      uid, name: data.name, photoURL: data.photoURL, stream: data.stream,
     })));
   }, []);
 
   const leaveRoom = useCallback(() => {
+    if (heartbeatInterval.current) {
+      clearInterval(heartbeatInterval.current);
+      heartbeatInterval.current = null;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
       streamRef.current = null;
@@ -194,6 +218,10 @@ export default function VoiceRoom({ user, db }) {
     });
 
     peer.on('stream', remoteStream => {
+      if (peersRef.current[targetUid]) {
+        peersRef.current[targetUid].stream = remoteStream;
+        updatePeersState();
+      }
       const audio = new Audio();
       audio.srcObject = remoteStream;
       audio.play().catch(() => {});
@@ -231,6 +259,10 @@ export default function VoiceRoom({ user, db }) {
     });
 
     peer.on('stream', remoteStream => {
+      if (peersRef.current[callerUid]) {
+        peersRef.current[callerUid].stream = remoteStream;
+        updatePeersState();
+      }
       const audio = new Audio();
       audio.srcObject = remoteStream;
       audio.play().catch(() => {});
@@ -260,13 +292,19 @@ export default function VoiceRoom({ user, db }) {
 
   const joinRoom = async () => {
     try {
-      const localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+      // Start with video off by default
+      localStream.getVideoTracks().forEach(t => t.enabled = false);
+      setIsVideoOn(false);
       setStream(localStream);
       streamRef.current = localStream;
       setInRoom(true);
 
       const myRef = ref(db, `voice_lobby/${user.uid}`);
-      await set(myRef, { name: user.name, photoURL: user.photoURL, joinedAt: Date.now() });
+      await set(myRef, { name: user.name, photoURL: user.photoURL, joinedAt: Date.now(), lastSeen: Date.now() });
+      heartbeatInterval.current = setInterval(() => {
+        update(myRef, { lastSeen: Date.now() }).catch(() => {});
+      }, 10000);
       onDisconnect(myRef).remove();
 
       const signalsRef = ref(db, `voice_signals/${user.uid}`);
@@ -287,10 +325,12 @@ export default function VoiceRoom({ user, db }) {
       onValue(lobbyRef, (snap) => {
         const lobby = snap.val() || {};
         
-        // Remove peers that have left the lobby
+        const now = Date.now();
+        // Remove peers that have left the lobby or haven't heartbeat
         let changed = false;
         Object.keys(peersRef.current).forEach(uid => {
-          if (!lobby[uid]) {
+          const info = lobby[uid];
+          if (!info || (now - (info.lastSeen || info.joinedAt || now) > 35000)) {
             try { peersRef.current[uid].peer.destroy(); } catch (_) {}
             delete peersRef.current[uid];
             if (vadCleanups.current[uid]) { vadCleanups.current[uid](); delete vadCleanups.current[uid]; }
@@ -300,7 +340,7 @@ export default function VoiceRoom({ user, db }) {
 
         // Add new peers
         Object.entries(lobby).forEach(([uid, info]) => {
-          if (uid !== user.uid && !peersRef.current[uid]) {
+          if (uid !== user.uid && !peersRef.current[uid] && (now - (info.lastSeen || info.joinedAt || now) <= 35000)) {
             const peer = createPeer(uid, info);
             if (peer) {
               peersRef.current[uid] = { peer, name: info.name, photoURL: info.photoURL };
@@ -320,6 +360,13 @@ export default function VoiceRoom({ user, db }) {
     if (streamRef.current) {
       const t = streamRef.current.getAudioTracks()[0];
       if (t) { t.enabled = !t.enabled; setIsMuted(!t.enabled); }
+    }
+  };
+
+  const toggleVideo = () => {
+    if (streamRef.current) {
+      const t = streamRef.current.getVideoTracks()[0];
+      if (t) { t.enabled = !t.enabled; setIsVideoOn(t.enabled); }
     }
   };
 
@@ -359,13 +406,13 @@ export default function VoiceRoom({ user, db }) {
             display: 'flex', flexWrap: 'wrap', gap: 20, justifyContent: 'center', width: '100%',
           }}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-              <VRAvatar name={user.name} photo={user.photoURL} size={64} speaking={false} />
+              <VRAvatar name={user.name} photo={user.photoURL} size={64} speaking={false} stream={stream} />
               <span style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1' }}>You</span>
               {isMuted && <span style={{ fontSize: 9, color: '#ef4444', fontWeight: 600 }}>MUTED</span>}
             </div>
             {peers.map(p => (
               <div key={p.uid} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                <VRAvatar name={p.name} photo={p.photoURL} size={64} speaking={speakingUsers.has(p.uid)} />
+                <VRAvatar name={p.name} photo={p.photoURL} size={64} speaking={speakingUsers.has(p.uid)} stream={p.stream} />
                 <span style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1' }}>{p.name?.split(' ')[0]}</span>
               </div>
             ))}
@@ -379,6 +426,15 @@ export default function VoiceRoom({ user, db }) {
               transition: 'all 0.2s',
             }}>
               {isMuted ? Icons.micOff('#ef4444', 22) : Icons.mic('#e2e8f0', 22)}
+            </button>
+            <button onClick={toggleVideo} style={{
+              width: 54, height: 54, borderRadius: '50%',
+              background: isVideoOn ? 'rgba(59,130,246,0.15)' : 'rgba(255,255,255,0.06)',
+              border: `1px solid ${isVideoOn ? 'rgba(59,130,246,0.3)' : 'rgba(255,255,255,0.12)'}`,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'all 0.2s',
+            }}>
+              {isVideoOn ? Icons.video('#3b82f6', 22) : Icons.videoOff('#94a3b8', 22)}
             </button>
             <button onClick={leaveRoom} style={{
               padding: '0 24px', height: 54, background: '#ef4444', color: '#fff',

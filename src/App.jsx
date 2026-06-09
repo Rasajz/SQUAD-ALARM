@@ -325,6 +325,7 @@ export default function SquadAlarm() {
   const [newMsg,   setNewMsg]   = useState(false);
   const [hostUid,  setHostUid]  = useState(null);
   const [cooldown, setCooldown] = useState(0);
+  const [lobbyCount, setLobbyCount] = useState(0);
 
   const isHost = user?.uid === hostUid;
   const cooldownRef = useRef(null);
@@ -501,11 +502,25 @@ export default function SquadAlarm() {
       } catch (_) {}
     }
 
+    // ── Voice Lobby Count
+    const lobbyRef = ref(db, 'voice_lobby');
+    onValue(lobbyRef, (snap) => {
+      const data = snap.val();
+      if (data) {
+        const now = Date.now();
+        const count = Object.values(data).filter(info => (now - (info.lastSeen || info.joinedAt || now)) <= 35000).length;
+        setLobbyCount(count);
+      } else {
+        setLobbyCount(0);
+      }
+    });
+
     return () => {
       off(alarmRef);
       off(histRef);
       off(msgRef);
       off(notifRef);
+      off(lobbyRef);
       if (notifUnsub) notifUnsub();
       clearInterval(sLoop.current);
     };
@@ -816,6 +831,48 @@ export default function SquadAlarm() {
         <div className="info-title">📡 HOW IT WORKS</div>
         <div className="info-line">This app is connected to <b>Google Firebase</b> in real-time. When anyone presses ALARM, <b>every device gets it instantly</b> — no matter where in the world they are.</div>
       </div>
+
+      {isHost && (
+        <div className="setting-section" style={{marginBottom:0}}>
+          <div style={{padding:"16px 16px 12px",borderBottom:"1px solid rgba(255,255,255,.05)",marginBottom:8}}>
+            <div style={{fontSize:15,fontWeight:800,color:"#f1f5f9",display:"flex",alignItems:"center",gap:8}}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+              COMMAND CENTER
+            </div>
+            <div style={{fontSize:12,color:"#94a3b8",marginTop:4}}>Live analytics and moderation</div>
+          </div>
+          
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,padding:"0 16px 16px"}}>
+            <div style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.06)",borderRadius:12,padding:"14px",display:"flex",flexDirection:"column",alignItems:"center"}}>
+              <div style={{fontSize:24,fontWeight:800,color:"#38bdf8"}}>{messages.length}</div>
+              <div style={{fontSize:10,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.05em",marginTop:2}}>Total Messages</div>
+            </div>
+            <div style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.06)",borderRadius:12,padding:"14px",display:"flex",flexDirection:"column",alignItems:"center"}}>
+              <div style={{fontSize:24,fontWeight:800,color:"#22c55e"}}>{lobbyCount}</div>
+              <div style={{fontSize:10,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.05em",marginTop:2}}>Active In War Room</div>
+            </div>
+          </div>
+
+          <div className="setting-row">
+            <div className="sr-left"><div className="sr-label" style={{color:"#f87171"}}>Clear All Messages</div><div className="sr-sub">Removes all team messages</div></div>
+            <button className="test-btn" style={{color:"#ef4444",borderColor:"rgba(239,68,68,.2)"}} onClick={async()=>{
+              if(confirm("Are you sure you want to clear all messages?")) {
+                await remove(ref(db, "messages"));
+                alert("Chat cleared.");
+              }
+            }}>Clear</button>
+          </div>
+          <div className="setting-row">
+            <div className="sr-left"><div className="sr-label" style={{color:"#f87171"}}>Clear Alarm Log</div><div className="sr-sub">Erases the emergency history</div></div>
+            <button className="test-btn" style={{color:"#ef4444",borderColor:"rgba(239,68,68,.2)"}} onClick={async()=>{
+              if(confirm("Are you sure you want to clear the alarm log?")) {
+                await remove(ref(db, "history"));
+                alert("Alarm history cleared.");
+              }
+            }}>Clear</button>
+          </div>
+        </div>
+      )}
 
       <div className="setting-section">
         <div className="setting-row">
