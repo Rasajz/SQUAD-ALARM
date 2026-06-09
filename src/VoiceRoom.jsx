@@ -503,8 +503,6 @@ export function CallOverlay({ user, db }) {
   const activeCallRef = useRef(null);
   const signalListenerRef = useRef(null);
 
-  if (!user) return null;
-
   const endCall = useCallback(() => {
     if (peerRef.current) {
       try { peerRef.current.destroy(); } catch (_) {}
@@ -543,6 +541,7 @@ export function CallOverlay({ user, db }) {
 
   /* ── Listen for incoming + outgoing calls ──── */
   useEffect(() => {
+    if (!user) return;
     const callsRef = ref(db, 'calls');
     const handler = onValue(callsRef, snap => {
       const data = snap.val();
@@ -798,8 +797,8 @@ export function CallOverlay({ user, db }) {
      RENDER
   ══════════════════════════════════════════════ */
 
-  // Nothing to show
-  if (!incomingCall && !activeCall) return <style>{VOICE_CSS}</style>;
+  // Nothing to show (no user, or no active/incoming call)
+  if (!user || (!incomingCall && !activeCall)) return <style>{VOICE_CSS}</style>;
 
   const otherName = activeCall
     ? (activeCall.direction === 'outgoing' ? activeCall.receiverName : activeCall.callerName)

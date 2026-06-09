@@ -133,10 +133,9 @@ export default function DirectMessages({ user, db, isHost }) {
   const shouldAutoScroll = useRef(true);
   const longPressTimer = useRef(null);
 
-  if (!user) return null;
-
   /* ── LOAD ALL USERS ─────────────────────────── */
   useEffect(() => {
+    if (!user) return;
     const usersRef = ref(db, 'users');
     const handler = onValue(usersRef, snap => {
       const data = snap.val();
@@ -1019,6 +1018,8 @@ export default function DirectMessages({ user, db, isHost }) {
   /* ══════════════════════════════════════════════
      MAIN RETURN
   ══════════════════════════════════════════════ */
+  if (!user) return null;
+
   return (
     <>
       <style>{DM_CSS}</style>
