@@ -356,6 +356,8 @@ export default function SquadAlarm() {
   const [hostUid,  setHostUid]  = useState(null);
   const [cooldown, setCooldown] = useState(0);
   const [lobbyCount, setLobbyCount] = useState(0);
+  const [allUsers, setAllUsers] = useState({});
+  const [selectedProfile, setSelectedProfile] = useState(null);
 
   const isHost = user?.uid === hostUid;
   const cooldownRef = useRef(null);
@@ -454,6 +456,10 @@ export default function SquadAlarm() {
     // ── host listener
     const hostRef = ref(db, "host");
     onValue(hostRef, (snap) => setHostUid(snap.val()));
+
+    // ── users listener
+    const usersRef = ref(db, "users");
+    onValue(usersRef, (snap) => setAllUsers(snap.val() || {}));
 
     // ── history listener
     const histRef = ref(db, "history");
@@ -660,10 +666,24 @@ export default function SquadAlarm() {
       </div>
       <div className="recent-list">
         {messages.length === 0
-          ? <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:"#1e293b",padding:"0 2px"}}>No messages yet. Send one in the Messages tab.</div>
+          ? <div className="empty" style={{paddingTop:60}}>
+              <div className="empty-icon">💬</div>
+              <div className="empty-label">NO MESSAGES YET</div>
+            </div>
           : messages.slice(0,3).map(m => (
-            <div key={m.id} className="msg-card" style={{marginBottom:0}}>
-              <Avatar name={m.by} photo={m.byPhoto}/>
+            <div key={m.id} className="msg-card">
+              <div style={{ cursor: "pointer" }} onClick={() => {
+                if (m.byUid && m.byUid !== user.uid) {
+                  const targetUser = allUsers[m.byUid];
+                  if (targetUser) {
+                    setSelectedProfile({ uid: targetUser.uid, name: targetUser.name, photoURL: targetUser.photoURL, email: targetUser.email, joinedAt: targetUser.joinedAt });
+                  } else {
+                    setSelectedProfile({ uid: m.byUid, name: m.by, photoURL: m.byPhoto, email: "Unknown", joinedAt: Date.now() });
+                  }
+                }
+              }}>
+                <Avatar name={m.by} photo={m.byPhoto} size={36} />
+              </div>
               <div className="mc-right">
                 <div className="mc-top">
                   <span className="mc-name">{m.by}</span>
@@ -702,7 +722,6 @@ export default function SquadAlarm() {
   const deleteGroupMessage = useCallback(async (msgKey) => {
     if (!isHost) return;
     if (!confirm("Delete this message?")) return;
-    // Find the key in Firebase — messages are stored by push key
     const msgRef = ref(db, "messages");
     onValue(msgRef, (snap) => {
       const data = snap.val();
@@ -713,9 +732,45 @@ export default function SquadAlarm() {
     }, { onlyOnce: true });
   }, [isHost]);
 
+  const renderMembers = () => (
+    <div className="msgs-wrap">
+      <div className="msgs-list">
+        {Object.values(allUsers).map(u => (
+          <div key={u.uid} className="msg-card" onClick={() => setSelectedProfile(u)} style={{cursor:'pointer'}}>
+            <Avatar name={u.name} photo={u.photoURL}/>
+            <div className="mc-right">
+              <div className="mc-name">{u.name} {u.uid === hostUid ? '👑' : ''}</div>
+              <div className="mc-text" style={{fontSize:10,color:'#64748b'}}>{u.email}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const ProfileModal = () => selectedProfile && (
+    <div className="img-fullscreen" onClick={()=>setSelectedProfile(null)}>
+      <div className="setup-card" onClick={e=>e.stopPropagation()} style={{maxWidth:300}}>
+        <Avatar name={selectedProfile.name} photo={selectedProfile.photoURL} size={80}/>
+        <div style={{fontSize:20,fontWeight:800,marginTop:16}}>{selectedProfile.name}</div>
+        <div style={{fontSize:12,color:"#64748b",marginBottom:20}}>{selectedProfile.email}</div>
+        {selectedProfile.joinedAt && <div style={{fontSize:10,color:"#475569"}}>Joined {new Date(selectedProfile.joinedAt).toLocaleDateString()}</div>}
+        <div style={{display:'flex', gap:10, marginTop:20, width:'100%'}}>
+          <button className="test-btn" style={{flex:1}} onClick={()=>setSelectedProfile(null)}>Close</button>
+          {selectedProfile.uid !== user?.uid && (
+            <button className="test-btn" style={{flex:1, background:'#2563eb', color:'#fff', borderColor:'#3b82f6'}} onClick={() => {
+              setDmTarget({ uid: selectedProfile.uid, name: selectedProfile.name, photoURL: selectedProfile.photoURL });
+              setTab("calls");
+              setSelectedProfile(null);
+            }}>💬 Chat</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
   const renderMessages = () => (
     <div className="msgs-wrap">
-      {/* Messages list - newest at top */}
       <div className="msgs-list">
         {messages.length === 0
           ? <div className="empty">
@@ -728,8 +783,12 @@ export default function SquadAlarm() {
                 style={{cursor: m.byUid && m.byUid !== user.uid ? 'pointer' : 'default', flexShrink: 0}}
                 onClick={() => {
                   if (m.byUid && m.byUid !== user.uid) {
-                    setDmTarget({ uid: m.byUid, name: m.by, photoURL: m.byPhoto });
-                    setTab("calls");
+                    const targetUser = allUsers[m.byUid];
+                    if (targetUser) setSelectedProfile(targetUser);
+                    else {
+                        setDmTarget({ uid: m.byUid, name: m.by, photoURL: m.byPhoto });
+                        setTab("calls");
+                    }
                   }
                 }}
               >
@@ -827,7 +886,7 @@ export default function SquadAlarm() {
     <div className="settings">
       {user && (
         <div className="setting-section" style={{marginBottom:12}}>
-          <div style={{padding:"16px 16px 12px",display:"flex",alignItems:"center",gap:12,borderBottom:"1px solid rgba(255,255,255,.05)"}}>
+          <div style={{padding:"16px 16px 12px",display:"flex",alignItems:"center",gap:12,borderBottom:"1px solid rgba(255,255,255,.05)", cursor:"pointer"}} onClick={() => setSelectedProfile({uid: user.uid, name: user.name, photoURL: user.photoURL, email: user.email, joinedAt: user.joinedAt})}>
             <Avatar name={user.name} photo={user.photoURL} size={44}/>
             <div>
               <div style={{fontSize:17,fontWeight:800,color:"#f1f5f9"}}>
@@ -943,18 +1002,16 @@ export default function SquadAlarm() {
         </div>
       </div>
 
-      {isHost && (
-        <div className="setting-section" style={{marginBottom:0}}>
-          <div className="setting-row">
-            <div className="sr-left"><div className="sr-label" style={{color:"#f87171"}}>Clear All Messages</div><div className="sr-sub">Removes all team messages</div></div>
-            <button className="test-btn" style={{color:"#f87171",borderColor:"rgba(239,68,68,.2)"}} onClick={async()=>{if(!confirm("Clear all messages?"))return;await remove(ref(db,"messages"));setMessages([]);}}>Clear</button>
-          </div>
-          <div className="setting-row">
-            <div className="sr-left"><div className="sr-label" style={{color:"#f87171"}}>Clear Alarm Log</div><div className="sr-sub">Removes alarm history</div></div>
-            <button className="test-btn" style={{color:"#f87171",borderColor:"rgba(239,68,68,.2)"}} onClick={async()=>{if(!confirm("Clear alarm log?"))return;await remove(ref(db,"alarm"));await remove(ref(db,"history"));setAlarm(null);setHistory([]);lastId.current="";}}>Clear</button>
-          </div>
+      <div className="setting-section">
+        <div className="setting-row">
+          <div className="sr-left"><div className="sr-label" style={{color:"#f87171"}}>Clear All Messages</div><div className="sr-sub">Removes all team messages</div></div>
+          <button className="test-btn" style={{color:"#f87171",borderColor:"rgba(239,68,68,.2)"}} onClick={async()=>{if(!confirm("Clear all messages?"))return;await remove(ref(db,"messages"));setMessages([]);}}>Clear</button>
         </div>
-      )}
+        <div className="setting-row">
+          <div className="sr-left"><div className="sr-label" style={{color:"#f87171"}}>Clear Alarm Log</div><div className="sr-sub">Removes alarm history</div></div>
+          <button className="test-btn" style={{color:"#f87171",borderColor:"rgba(239,68,68,.2)"}} onClick={async()=>{if(!confirm("Clear alarm log?"))return;await remove(ref(db,"alarm"));await remove(ref(db,"history"));setAlarm(null);setHistory([]);lastId.current="";}}>Clear</button>
+        </div>
+      </div>
       <div style={{height:20}}/>
     </div>
   );
@@ -1004,6 +1061,7 @@ export default function SquadAlarm() {
   const TABS = [
     { id: "home",     icon: "🏠", label: "Home"     },
     { id: "messages", icon: "💬", label: "Messages" },
+    { id: "members",  icon: "👥", label: "Members"  },
     { id: "voice",    icon: "🎙️", label: "War Room" },
     { id: "calls",    icon: "💬", label: "DMs"      },
     { id: "log",      icon: "🚨", label: "Log"      },
@@ -1059,6 +1117,7 @@ export default function SquadAlarm() {
       <div className="tab-body">
         {tab === "home"     && renderHome()}
         {tab === "messages" && renderMessages()}
+        {tab === "members"  && renderMembers()}
         {tab === "calls"    && <DirectMessages user={user} db={db} isHost={isHost} dmTarget={dmTarget} onClearTarget={() => setDmTarget(null)} playPop={playPop} playPing={playPing} />}
         {tab === "log"      && renderLog()}
         {tab === "settings" && renderSettings()}
@@ -1066,6 +1125,7 @@ export default function SquadAlarm() {
           <VoiceRoom user={user} db={db} />
         </div>
       </div>
+      <ProfileModal />
 
       {/* BOTTOM NAV */}
       <div className="bnav">

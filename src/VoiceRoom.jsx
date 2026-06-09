@@ -342,7 +342,9 @@ export default function VoiceRoom({ user, db }) {
         // Add new peers
         Object.entries(lobby).forEach(([uid, info]) => {
           const lastActive = info.lastSeen || info.joinedAt || 0;
-          if (uid !== user.uid && !peersRef.current[uid] && (now - lastActive <= 35000)) {
+          // ONLY create an offer if our UID is alphabetically > the target's UID.
+          // This prevents WebRTC glare collisions where both peers send an offer.
+          if (uid !== user.uid && user.uid > uid && !peersRef.current[uid] && (now - lastActive <= 35000)) {
             const peer = createPeer(uid, info);
             if (peer) {
               peersRef.current[uid] = { peer, name: info.name, photoURL: info.photoURL };
