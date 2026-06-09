@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { db, auth } from "./firebase";
-import { ref, onValue, set, push, off, remove } from "firebase/database";
+import { ref, onValue, set, push, off, remove, update, onDisconnect } from "firebase/database";
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "firebase/auth";
 import { messaging } from "./firebase";
-import { getToken } from "firebase/messaging";
-import VoiceRoom from "./VoiceRoom";
+import { getToken, onMessage } from "firebase/messaging";
+import VoiceRoom, { CallOverlay } from "./VoiceRoom";
 import DirectMessages from "./DirectMessages";
 
 /* ══════════════════════════════════════════════════
@@ -324,9 +324,10 @@ export default function SquadAlarm() {
   const [newAlarm, setNewAlarm] = useState(false);
   const [newMsg,   setNewMsg]   = useState(false);
   const [hostUid,  setHostUid]  = useState(null);
-  const [activeCallId, setActiveCallId] = useState(null);
+  const [cooldown, setCooldown] = useState(0);
 
   const isHost = user?.uid === hostUid;
+  const cooldownRef = useRef(null);
 
   const [firing,   setFiring]   = useState(false);
   const [msgText,  setMsgText]  = useState("");
@@ -366,6 +367,13 @@ export default function SquadAlarm() {
         } catch (err) {
           console.warn("FCM Token fetch failed:", err);
         }
+
+        // Set online presence
+        try {
+          const presRef = ref(db, `presence/${firebaseUser.uid}`);
+          await set(presRef, true);
+          onDisconnect(presRef).set(false);
+        } catch (_) {}
 
         setUser(userData);
         setPhase("main");
@@ -452,17 +460,53 @@ export default function SquadAlarm() {
       isMsgInitialLoad = false;
     });
 
-    // ── user calls listener
-    const myCallRef = ref(db, `user_calls/${user.uid}`);
-    onValue(myCallRef, snap => {
-      setActiveCallId(snap.val() || null);
+    // ── Foreground notification listener (DM notifications)
+    let notifUnsub = null;
+    const notifRef = ref(db, `notifications/${user.uid}`);
+    let isNotifInitial = true;
+    onValue(notifRef, (snap) => {
+      const data = snap.val();
+      if (!isNotifInitial && data) {
+        // Play siren + buzz for new DM notifications
+        const entries = Object.values(data);
+        if (entries.length > 0) {
+          const latest = entries[entries.length - 1];
+          if (latest.ts && Date.now() - latest.ts < 5000) {
+            playSiren();
+            buzz();
+          }
+        }
+      }
+      isNotifInitial = false;
+      // Clean up notifications after reading
+      if (data) remove(notifRef);
     });
+
+    // ── FCM onMessage for foreground push
+    if (messaging) {
+      try {
+        notifUnsub = onMessage(messaging, (payload) => {
+          playSiren();
+          buzz();
+          if ("Notification" in window && Notification.permission === "granted") {
+            try {
+              new Notification(payload.notification?.title || "Squad Alarm", {
+                body: payload.notification?.body || "New notification",
+                icon: "/icon-192.png",
+                tag: "squad-fg-notif",
+              });
+            } catch (_) {}
+          }
+        });
+      } catch (_) {}
+    }
 
     return () => {
       off(alarmRef);
       off(histRef);
       off(msgRef);
-      off(myCallRef);
+      off(notifRef);
+      if (notifUnsub) notifUnsub();
       clearInterval(sLoop.current);
     };
   }, [phase]);
@@ -480,7 +524,7 @@ export default function SquadAlarm() {
   };
 
   const triggerAlarm = useCallback(async () => {
-    if (firing || !user) return;
+    if (firing || cooldown > 0 || !user) return;
     setFiring(true);
     const a = {
       id: String(Date.now()),
@@ -494,9 +538,18 @@ export default function SquadAlarm() {
       lastId.current = a.id;
       setOverlay(true); setNewAlarm(true);
       playSiren(); buzz();
+      // Start 30-second cooldown
+      setCooldown(30);
+      if (cooldownRef.current) clearInterval(cooldownRef.current);
+      cooldownRef.current = setInterval(() => {
+        setCooldown(prev => {
+          if (prev <= 1) { clearInterval(cooldownRef.current); return 0; }
+          return prev - 1;
+        });
+      }, 1000);
     } catch { alert("Could not send alarm. Check your connection."); }
     setFiring(false);
-  }, [firing, user]);
+  }, [firing, cooldown, user]);
 
   const postMessage = useCallback(async () => {
     if ((!msgText.trim() && !msgPhoto) || posting || !user) return;
@@ -542,12 +595,12 @@ export default function SquadAlarm() {
       </div>
 
       <div className="alarm-zone">
-        <button className={`alarm-btn${firing?" quiet":""}`} onClick={triggerAlarm} disabled={firing}>
+        <button className={`alarm-btn${(firing||cooldown>0)?" quiet":""}`} onClick={triggerAlarm} disabled={firing||cooldown>0}>
           <div className="btn-shine"/>
           <div className="btn-inner">
-            <div className="btn-emoji">{firing?"⏳":"🚨"}</div>
-            <div className="btn-word">{firing?"SENDING":"ALARM"}</div>
-            <div className="btn-sub">{firing?"Alerting your team…":"Tap to alert all team members"}</div>
+            <div className="btn-emoji">{firing?"⏳":cooldown>0?"⏱️":"🚨"}</div>
+            <div className="btn-word">{firing?"SENDING":cooldown>0?`WAIT ${cooldown}s`:"ALARM"}</div>
+            <div className="btn-sub">{firing?"Alerting your team…":cooldown>0?"Cooldown active — prevents spam":"Tap to alert all team members"}</div>
           </div>
         </button>
         <div className="alarm-hint">⚡ Real-time • Everyone gets siren + vibration instantly</div>
@@ -599,6 +652,20 @@ export default function SquadAlarm() {
     </div>
   );
 
+  const deleteGroupMessage = useCallback(async (msgKey) => {
+    if (!isHost) return;
+    if (!confirm("Delete this message?")) return;
+    // Find the key in Firebase — messages are stored by push key
+    const msgRef = ref(db, "messages");
+    onValue(msgRef, (snap) => {
+      const data = snap.val();
+      if (data) {
+        const entry = Object.entries(data).find(([, v]) => v.id === msgKey);
+        if (entry) remove(ref(db, `messages/${entry[0]}`));
+      }
+    }, { onlyOnce: true });
+  }, [isHost]);
+
   const renderMessages = () => (
     <div className="msgs-wrap">
       {/* Messages list - newest at top */}
@@ -609,7 +676,7 @@ export default function SquadAlarm() {
               <div className="empty-label">NO MESSAGES YET<br/>SAY SOMETHING TO YOUR TEAM</div>
             </div>
           : messages.map(m => (
-            <div key={m.id} className="msg-card">
+            <div key={m.id} className="msg-card" style={{position:'relative'}}>
               <Avatar name={m.by} photo={m.byPhoto}/>
               <div className="mc-right">
                 <div className="mc-top">
@@ -619,6 +686,17 @@ export default function SquadAlarm() {
                 {m.text && <div className="mc-text">{m.text}</div>}
                 {m.photo && <img src={m.photo} className="mc-img" alt="attachment" onClick={()=>setFullImg(m.photo)}/>}
               </div>
+              {isHost && (
+                <button
+                  onClick={()=>deleteGroupMessage(m.id)}
+                  title="Delete message (Host)"
+                  style={{position:'absolute',top:6,right:6,width:24,height:24,borderRadius:'50%',background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.2)',color:'#ef4444',fontSize:11,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',opacity:0.4,transition:'opacity 0.15s'}}
+                  onMouseEnter={e=>e.currentTarget.style.opacity='1'}
+                  onMouseLeave={e=>e.currentTarget.style.opacity='0.4'}
+                >
+                  🗑
+                </button>
+              )}
             </div>
           ))
         }
@@ -861,12 +939,7 @@ export default function SquadAlarm() {
         </div>
       )}
 
-      {/* OVERLAY PRIVATE CALL */}
-      {activeCallId && (
-        <div className="ov" style={{ zIndex: 10000, background: 'rgba(7,9,13,0.95)' }}>
-          <DirectMessages user={user} db={db} activeCallId={activeCallId} setActiveCallId={setActiveCallId} />
-        </div>
-      )}
+      {/* 1-on-1 Call Overlay — rendered outside tab-body for persistence */}
 
       {/* STATUS BAR */}
       <div className="sb">
@@ -887,12 +960,10 @@ export default function SquadAlarm() {
       <div className="tab-body">
         {tab === "home"     && renderHome()}
         {tab === "messages" && renderMessages()}
-        {tab === "calls"    && !activeCallId && <DirectMessages user={user} db={db} activeCallId={activeCallId} setActiveCallId={setActiveCallId} />}
+        {tab === "calls"    && <DirectMessages user={user} db={db} isHost={isHost} />}
         {tab === "log"      && renderLog()}
         {tab === "settings" && renderSettings()}
-        <div style={{ display: tab === "voice" ? "block" : "none", height: "100%" }}>
-          <VoiceRoom user={user} db={db} />
-        </div>
+        {tab === "voice"    && <VoiceRoom user={user} db={db} />}
       </div>
 
       {/* BOTTOM NAV */}
@@ -912,6 +983,9 @@ export default function SquadAlarm() {
           </button>
         ))}
       </div>
+
+      {/* Floating Call Overlay — always mounted, renders incoming/active call UI */}
+      <CallOverlay user={user} db={db} />
 
     </div></>
   );
