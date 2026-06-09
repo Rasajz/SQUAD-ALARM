@@ -286,15 +286,30 @@ export default function VoiceRoom({ user, db }) {
       const lobbyRef = ref(db, 'voice_lobby');
       onValue(lobbyRef, (snap) => {
         const lobby = snap.val() || {};
+        
+        // Remove peers that have left the lobby
+        let changed = false;
+        Object.keys(peersRef.current).forEach(uid => {
+          if (!lobby[uid]) {
+            try { peersRef.current[uid].peer.destroy(); } catch (_) {}
+            delete peersRef.current[uid];
+            if (vadCleanups.current[uid]) { vadCleanups.current[uid](); delete vadCleanups.current[uid]; }
+            changed = true;
+          }
+        });
+
+        // Add new peers
         Object.entries(lobby).forEach(([uid, info]) => {
           if (uid !== user.uid && !peersRef.current[uid]) {
             const peer = createPeer(uid, info);
             if (peer) {
               peersRef.current[uid] = { peer, name: info.name, photoURL: info.photoURL };
-              updatePeersState();
+              changed = true;
             }
           }
         });
+
+        if (changed) updatePeersState();
       });
     } catch (err) {
       alert('Microphone access denied.');

@@ -950,7 +950,7 @@ export default function SquadAlarm() {
             <div style={{ background: '#ef4444', borderRadius: '10px', padding: '2px 6px', fontSize: '10px', color: '#fff', fontWeight: 'bold', marginLeft: '6px', animation: 'pulse 1.5s infinite' }}>NEW</div>
           )}
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}} onClick={() => setTab("settings")}>
           <span className="sb-chip">{user?.name}</span>
           <Avatar name={user?.name || ""} photo={user?.photoURL} size={24} />
         </div>
@@ -963,7 +963,9 @@ export default function SquadAlarm() {
         {tab === "calls"    && <DirectMessages user={user} db={db} isHost={isHost} />}
         {tab === "log"      && renderLog()}
         {tab === "settings" && renderSettings()}
-        {tab === "voice"    && <VoiceRoom user={user} db={db} />}
+        <div style={{ display: tab === "voice" ? "block" : "none", height: "100%" }}>
+          <VoiceRoom user={user} db={db} />
+        </div>
       </div>
 
       {/* BOTTOM NAV */}
