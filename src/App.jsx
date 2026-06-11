@@ -1555,55 +1555,6 @@ export default function SquadAlarm() {
     }
   };
 
-  const ActiveCallBanner = () => {
-    const [duration, setDuration] = useState(0);
-
-    useEffect(() => {
-      if (!activeCallBarInfo || !activeCallBarInfo.startedAt) return;
-      const interval = setInterval(() => {
-        setDuration(Math.floor((Date.now() - activeCallBarInfo.startedAt) / 1000));
-      }, 1000);
-      return () => clearInterval(interval);
-    }, []);
-
-    const fmtDuration = (s) => {
-      const m = Math.floor(s / 60);
-      const sec = s % 60;
-      return `${m}:${sec.toString().padStart(2, '0')}`;
-    };
-
-    if (!activeCallBarInfo) return null;
-
-    return (
-      <div 
-        onClick={handleExpandCall}
-        style={{
-          background: 'rgba(34, 197, 94, 0.15)',
-          backdropFilter: 'blur(20px)',
-          borderBottom: '1px solid rgba(34, 197, 94, 0.3)',
-          padding: '10px 16px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 8,
-          cursor: 'pointer',
-          fontSize: '13px',
-          fontWeight: 'bold',
-          color: '#4ade80',
-          animation: 'bannerPulse 2s infinite',
-          fontFamily: "'JetBrains Mono', monospace",
-          zIndex: 9999,
-          position: 'relative'
-        }}
-      >
-        <span style={{
-          width: 8, height: 8, borderRadius: '50%', background: '#22c55e',
-          boxShadow: '0 0 8px #22c55e', display: 'inline-block'
-        }}/>
-        <span>🟢 TACTICAL COMMS ACTIVE: {activeCallBarInfo.name} ({activeCallBarInfo.startedAt ? fmtDuration(duration) : 'connecting'}) · TAP TO EXPAND</span>
-      </div>
-    );
-  };
 
   const renderMessages = () => {
     const activeMsgs = messages.filter(m => !ignoredGroupMsgs.has(m.id));
@@ -2138,8 +2089,6 @@ export default function SquadAlarm() {
     )}
 
     <div className="app">
-
-      <ActiveCallBanner />
 
       {/* OVERLAY ALARM */}
       {overlay && alarm && (
