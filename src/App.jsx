@@ -509,6 +509,7 @@ export default function SquadAlarm() {
   const [cooldown, setCooldown] = useState(0);
   const [lobbyCount, setLobbyCount] = useState(0);
   const [allUsers, setAllUsers] = useState({});
+  const allUsersRef = useRef({});
   const [selectedProfile, setSelectedProfile] = useState(null);
   const [hasUnreadDM, setHasUnreadDM] = useState(false);
 
@@ -713,7 +714,11 @@ export default function SquadAlarm() {
 
     // ── users listener
     const usersRef = ref(db, "users");
-    onValue(usersRef, (snap) => setAllUsers(snap.val() || {}));
+    onValue(usersRef, (snap) => {
+      const val = snap.val() || {};
+      setAllUsers(val);
+      allUsersRef.current = val;
+    });
 
     // ── history listener
     const histRef = ref(db, "history");
@@ -837,14 +842,20 @@ export default function SquadAlarm() {
     const dmCallsRef = ref(db, 'dm_calls');
     onValue(dmCallsRef, (snap) => {
       const data = snap.val();
-      if (!data) { setIncomingCallInfo(null); return; }
+      const currentUid = auth.currentUser?.uid;
+      if (!data || !currentUid) { setIncomingCallInfo(null); return; }
       
       let incoming = null;
       Object.entries(data).forEach(([chatId, callData]) => {
-        if (chatId.includes(user.uid) && callData.caller !== user.uid && callData.status === 'ringing') {
-          const otherUid = chatId.split('_').find(id => id !== user.uid);
-          const otherData = allUsers[otherUid];
-          if (otherData) incoming = { chatId, caller: otherData };
+        if (chatId.includes(currentUid) && callData.caller !== currentUid && callData.status === 'ringing') {
+          const otherUid = chatId.split('_').find(id => id !== currentUid);
+          const otherData = allUsersRef.current[otherUid] || {
+            uid: otherUid,
+            name: 'Teammate',
+            email: 'Unknown',
+            photoURL: null
+          };
+          incoming = { chatId, caller: otherData };
         }
       });
       setIncomingCallInfo(incoming);
