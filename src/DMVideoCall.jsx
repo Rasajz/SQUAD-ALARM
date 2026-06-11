@@ -373,7 +373,8 @@ export default function DMVideoCall({ user, db, chatId, otherUser, onEndCall, mi
         background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(16px)',
         border: '1px solid rgba(255,255,255,0.1)', borderRadius: 40,
         display: 'flex', alignItems: 'center', padding: '12px 24px', gap: 16,
-        boxShadow: '0 20px 40px rgba(0,0,0,0.5)', width: 'max-content', maxWidth: '90%'
+        boxShadow: '0 20px 40px rgba(0,0,0,0.5)', width: 'max-content', maxWidth: '95%',
+        zIndex: 100
       }}>
         {/* Camera Flip */}
         <button onClick={switchCamera} style={{

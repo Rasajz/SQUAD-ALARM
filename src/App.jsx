@@ -6,6 +6,7 @@ import { messaging } from "./firebase";
 import { getToken, onMessage } from "firebase/messaging";
 import VoiceRoom, { CallOverlay } from "./VoiceRoom";
 import DirectMessages from "./DirectMessages";
+import DMVideoCall from "./DMVideoCall";
 
 /* ══════════════════════════════════════════════════
    AUDIO — real wailing siren via LFO modulation
@@ -527,6 +528,11 @@ export default function SquadAlarm() {
   const [postFile,      setPostFile]      = useState(null);
   const [postCreating,  setPostCreating]  = useState(false);
 
+  const [inVideoCall, setInVideoCall] = useState(false);
+  const [incomingCallInfo, setIncomingCallInfo] = useState(null);
+  const [callMinimized, setCallMinimized] = useState(false);
+  const [callUser, setCallUser] = useState(null);
+
   const lastId    = useRef("");
   const sLoop     = useRef(null);
   const fileInput = useRef(null);
@@ -827,6 +833,23 @@ export default function SquadAlarm() {
       }
     });
 
+    // ── DM calls listener
+    const dmCallsRef = ref(db, 'dm_calls');
+    onValue(dmCallsRef, (snap) => {
+      const data = snap.val();
+      if (!data) { setIncomingCallInfo(null); return; }
+      
+      let incoming = null;
+      Object.entries(data).forEach(([chatId, callData]) => {
+        if (chatId.includes(user.uid) && callData.caller !== user.uid && callData.status === 'ringing') {
+          const otherUid = chatId.split('_').find(id => id !== user.uid);
+          const otherData = allUsers[otherUid];
+          if (otherData) incoming = { chatId, caller: otherData };
+        }
+      });
+      setIncomingCallInfo(incoming);
+    });
+
     return () => {
       off(alarmRef);
       off(histRef);
@@ -834,6 +857,7 @@ export default function SquadAlarm() {
       off(postsRef);
       off(notifRef);
       off(lobbyRef);
+      off(ref(db, 'dm_calls'));
       if (notifUnsub) notifUnsub();
       clearInterval(sLoop.current);
     };
@@ -2127,7 +2151,22 @@ export default function SquadAlarm() {
         {tab === "messages" && renderMessages()}
         {tab === "members"  && renderMembers()}
         <div style={{ display: tab === "calls" ? "block" : "none", height: "100%" }}>
-          <DirectMessages ref={dmRef} user={user} db={db} isHost={isHost} dmTarget={dmTarget} onClearTarget={() => setDmTarget(null)} playPop={playPop} playPing={playPing} />
+          <DirectMessages 
+            ref={dmRef} 
+            user={user} 
+            db={db} 
+            isHost={isHost} 
+            dmTarget={dmTarget} 
+            onClearTarget={() => setDmTarget(null)} 
+            playPop={playPop} 
+            playPing={playPing} 
+            inVideoCall={inVideoCall}
+            setInVideoCall={setInVideoCall}
+            callMinimized={callMinimized}
+            setCallMinimized={setCallMinimized}
+            callUser={callUser}
+            setCallUser={setCallUser}
+          />
         </div>
         {tab === "log"      && renderLog()}
         {tab === "settings" && renderSettings()}
@@ -2137,6 +2176,66 @@ export default function SquadAlarm() {
       </div>
       <ProfileModal />
       <UnsendModal />
+
+      {/* ── DM INCOMING CALL OVERLAY ── */}
+      {incomingCallInfo && !inVideoCall && (
+        <div style={{
+          position: 'fixed', top: 20, left: 20, right: 20, background: 'rgba(15,23,42,0.95)',
+          backdropFilter: 'blur(10px)', border: '1px solid rgba(59,130,246,0.5)', borderRadius: 16,
+          padding: 20, display: 'flex', alignItems: 'center', gap: 16, zIndex: 10000,
+          boxShadow: '0 10px 40px rgba(0,0,0,0.5), 0 0 20px rgba(59,130,246,0.2)'
+        }}>
+          <Avatar name={incomingCallInfo.caller.name} photo={incomingCallInfo.caller.photoURL} size={48} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{incomingCallInfo.caller.name}</div>
+            <div style={{ fontSize: 13, color: '#3b82f6', fontWeight: 600 }}>Incoming Video Call...</div>
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button 
+              onClick={() => remove(ref(db, `dm_calls/${incomingCallInfo.chatId}`))}
+              style={{ width: 44, height: 44, borderRadius: '50%', background: '#ef4444', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"></path><line x1="23" y1="1" x2="1" y2="23"></line></svg>
+            </button>
+            <button 
+              onClick={() => {
+                setTab("calls");
+                setDmTarget(incomingCallInfo.caller);
+                setCallUser(incomingCallInfo.caller);
+                setInVideoCall(true);
+                setCallMinimized(false);
+              }}
+              style={{ width: 44, height: 44, borderRadius: '50%', background: '#22c55e', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── DM VIDEO CALL (Fullscreen or PiP) ── */}
+      {inVideoCall && callUser && (
+        <DMVideoCall 
+          user={user} 
+          db={db} 
+          chatId={user.uid < callUser.uid ? `${user.uid}_${callUser.uid}` : `${callUser.uid}_${user.uid}`} 
+          otherUser={callUser}
+          minimized={callMinimized}
+          onMinimize={() => {
+            setCallMinimized(true);
+          }}
+          onExpand={() => {
+            setCallMinimized(false);
+            setTab('calls');
+            setDmTarget(callUser);
+          }}
+          onEndCall={() => {
+            setInVideoCall(false);
+            setCallMinimized(false);
+            setCallUser(null);
+          }}
+        />
+      )}
 
       {/* BOTTOM NAV */}
       <div className="bnav">
