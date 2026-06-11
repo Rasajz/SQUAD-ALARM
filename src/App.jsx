@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { db, auth } from "./firebase";
 import { ref, onValue, set, push, off, remove, update, onDisconnect, get } from "firebase/database";
-import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, sendPasswordResetEmail, FacebookAuthProvider, TwitterAuthProvider } from "firebase/auth";
+import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, sendPasswordResetEmail, TwitterAuthProvider } from "firebase/auth";
 import { messaging } from "./firebase";
 import { getToken, onMessage } from "firebase/messaging";
 import VoiceRoom, { CallOverlay } from "./VoiceRoom";
@@ -623,6 +623,31 @@ export default function SquadAlarm() {
   }, [phase]);
 
   /* ── Handlers ─────────────────────────────── */
+  const getFriendlyErrorMessage = (error) => {
+    if (!error) return "";
+    const code = error.code || "";
+    const msg = error.message || "";
+    if (code === "auth/operation-not-allowed" || msg.includes("operation-not-allowed")) {
+      return "This login option is not enabled in your Firebase Console. Please go to the Authentication tab in Firebase and enable 'Email/Password' and 'Twitter' under Sign-in methods.";
+    }
+    if (code === "auth/invalid-credential" || code === "auth/user-not-found" || code === "auth/wrong-password") {
+      return "Incorrect email or password. Please check your credentials and try again.";
+    }
+    if (code === "auth/email-already-in-use") {
+      return "An account with this email already exists.";
+    }
+    if (code === "auth/weak-password") {
+      return "Password should be at least 6 characters.";
+    }
+    if (code === "auth/invalid-email") {
+      return "Please enter a valid email address.";
+    }
+    if (code === "auth/popup-closed-by-user") {
+      return "The login window was closed before completing.";
+    }
+    return msg || "An error occurred during authentication.";
+  };
+
   const loginWithGoogle = async () => {
     try {
       getCtx();
@@ -632,22 +657,7 @@ export default function SquadAlarm() {
       await signInWithPopup(auth, provider);
     } catch (err) {
       console.error(err);
-      setAuthError(err.message);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const loginWithFacebook = async () => {
-    try {
-      getCtx();
-      setAuthLoading(true);
-      setAuthError("");
-      const provider = new FacebookAuthProvider();
-      await signInWithPopup(auth, provider);
-    } catch (err) {
-      console.error(err);
-      setAuthError(err.message);
+      setAuthError(getFriendlyErrorMessage(err));
     } finally {
       setAuthLoading(false);
     }
@@ -662,7 +672,7 @@ export default function SquadAlarm() {
       await signInWithPopup(auth, provider);
     } catch (err) {
       console.error(err);
-      setAuthError(err.message);
+      setAuthError(getFriendlyErrorMessage(err));
     } finally {
       setAuthLoading(false);
     }
@@ -702,7 +712,7 @@ export default function SquadAlarm() {
       
     } catch (err) {
       console.error(err);
-      setAuthError(err.message);
+      setAuthError(getFriendlyErrorMessage(err));
     } finally {
       setAuthLoading(false);
     }
@@ -721,7 +731,7 @@ export default function SquadAlarm() {
       await signInWithEmailAndPassword(auth, authEmail, authPassword);
     } catch (err) {
       console.error(err);
-      setAuthError(err.message);
+      setAuthError(getFriendlyErrorMessage(err));
     } finally {
       setAuthLoading(false);
     }
@@ -741,7 +751,7 @@ export default function SquadAlarm() {
       setForgotPass(false);
     } catch (err) {
       console.error(err);
-      setAuthError(err.message);
+      setAuthError(getFriendlyErrorMessage(err));
     } finally {
       setAuthLoading(false);
     }
@@ -1222,26 +1232,22 @@ export default function SquadAlarm() {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', marginTop: 8 }}>
           {/* Social Sign In Options */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, width: '100%' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, width: '100%' }}>
             <button className="social-btn google" onClick={loginWithGoogle} title="Sign in with Google" disabled={authLoading}>
-              <svg viewBox="0 0 24 24" width="20" height="20">
+              <svg viewBox="0 0 24 24" width="18" height="18" style={{ marginRight: 6 }}>
                 <path fill="#EA4335" d="M5.266 9.765C6.199 6.939 8.854 4.909 12 4.909c1.69 0 3.218.6 4.418 1.582L19.91 3C17.782 1.145 15.055 0 12 0 7.359 0 3.327 2.695 1.341 6.627l3.925 3.138z"/>
                 <path fill="#34A853" d="M16.04 18.013c-1.09.704-2.474 1.078-4.04 1.078-3.146 0-5.801-2.03-6.734-4.856l-3.925 3.137C3.327 21.305 7.359 24 12 24c3.006 0 6.066-1.105 8.256-3.025l-4.215-2.962z"/>
                 <path fill="#4285F4" d="M24 12c0-.873-.095-1.625-.245-2.455H12v4.582h6.725c-.566 2.465-1.902 3.362-2.684 3.885l4.215 2.963C22.821 18.662 24 15.393 24 12z"/>
                 <path fill="#FBBC05" d="M5.266 9.765C5.013 10.535 4.873 11.356 4.873 12c0 .644.14 1.465.393 2.235L1.34 17.373C.485 15.671 0 13.889 0 12c0-1.889.485-3.671 1.341-5.373l3.925 3.138z"/>
               </svg>
+              Google
             </button>
             
-            <button className="social-btn facebook" onClick={loginWithFacebook} title="Sign in with Facebook" disabled={authLoading}>
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-              </svg>
-            </button>
-
             <button className="social-btn twitter" onClick={loginWithTwitter} title="Sign in with X (Twitter)" disabled={authLoading}>
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style={{ marginRight: 6 }}>
                 <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
               </svg>
+              X / Twitter
             </button>
           </div>
 
