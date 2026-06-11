@@ -78,6 +78,14 @@ function createVAD(stream, onSpeaking) {
 
 // ── CSS Animations ───────────────────────────────
 const VOICE_CSS = `
+@keyframes slowRotate {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+@keyframes glowPulse {
+  0%, 100% { filter: drop-shadow(0 0 8px rgba(239,68,68,0.5)); }
+  50% { filter: drop-shadow(0 0 16px rgba(239,68,68,0.8)); }
+}
 @keyframes vcPulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
   50% { box-shadow: 0 0 0 10px rgba(34,197,94,0); }
@@ -501,7 +509,29 @@ export default function VoiceRoom({ user, db }) {
 
       {!inRoom ? (
         <div style={{ textAlign: 'center', padding: '40px 0', position: 'relative', zIndex: 1 }}>
-          <div style={{ fontSize: 64, marginBottom: 16, textShadow: '0 0 20px rgba(239,68,68,0.6)' }}>♞ ⚔</div>
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
+            <svg width="180" height="180" viewBox="0 0 200 200" style={{ animation: 'slowRotate 12s linear infinite, glowPulse 3s ease-in-out infinite', width: 180, height: 180 }}>
+              {/* Outer brackets */}
+              <path d="M 30,50 A 70,70 0 0,1 170,50" fill="none" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="5,10" />
+              <path d="M 170,150 A 70,70 0 0,1 30,150" fill="none" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="5,10" />
+              {/* Multi-layered concentric circles */}
+              <circle cx="100" cy="100" r="90" fill="none" stroke="#ef4444" strokeWidth="1" opacity="0.3" />
+              <circle cx="100" cy="100" r="75" fill="none" stroke="#ef4444" strokeWidth="2" strokeDasharray="20,10,5,10" />
+              <circle cx="100" cy="100" r="50" fill="none" stroke="#ef4444" strokeWidth="1" strokeDasharray="4,4" opacity="0.7" />
+              <circle cx="100" cy="100" r="30" fill="none" stroke="#ef4444" strokeWidth="1.5" />
+              <circle cx="100" cy="100" r="6" fill="#ef4444" />
+              {/* Crosshair axis lines */}
+              <line x1="100" y1="10" x2="100" y2="40" stroke="#ef4444" strokeWidth="2" />
+              <line x1="100" y1="160" x2="100" y2="190" stroke="#ef4444" strokeWidth="2" />
+              <line x1="10" y1="100" x2="40" y2="100" stroke="#ef4444" strokeWidth="2" />
+              <line x1="160" y1="100" x2="190" y2="100" stroke="#ef4444" strokeWidth="2" />
+              {/* Tactical corner indicators */}
+              <path d="M 60,100 L 70,100" stroke="#ef4444" strokeWidth="1" />
+              <path d="M 130,100 L 140,100" stroke="#ef4444" strokeWidth="1" />
+              <path d="M 100,60 L 100,70" stroke="#ef4444" strokeWidth="1" />
+              <path d="M 100,130 L 100,140" stroke="#ef4444" strokeWidth="1" />
+            </svg>
+          </div>
           <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 8, color: '#f87171', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
             Enter The War Room
           </div>

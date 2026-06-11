@@ -133,6 +133,37 @@ function fmtFull(ts) {
   }) + " at " + fmtTime(ts);
 }
 
+function downloadFile(dataUrl, fileName) {
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = fileName || 'download';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+function getFileIcon(type, name) {
+  if (!type && !name) return '📄';
+  const t = (type || '').toLowerCase();
+  const n = (name || '').toLowerCase();
+  if (t.includes('pdf') || n.endsWith('.pdf')) return '📕';
+  if (t.includes('word') || n.endsWith('.doc') || n.endsWith('.docx')) return '📝';
+  if (t.includes('sheet') || t.includes('excel') || n.endsWith('.xls') || n.endsWith('.xlsx') || n.endsWith('.csv')) return '📊';
+  if (t.includes('presentation') || t.includes('powerpoint') || n.endsWith('.ppt') || n.endsWith('.pptx')) return '📙';
+  if (t.includes('zip') || t.includes('rar') || t.includes('7z') || n.endsWith('.zip') || n.endsWith('.rar')) return '📦';
+  if (t.includes('text') || n.endsWith('.txt') || n.endsWith('.md')) return '📃';
+  if (t.includes('video')) return '🎬';
+  if (t.includes('audio')) return '🎵';
+  return '📄';
+}
+
+function fmtFileSize(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
 /* ══════════════════════════════════════════════════
    HELPERS
 ══════════════════════════════════════════════════ */
@@ -480,18 +511,28 @@ export default function SquadAlarm() {
   const [selectedProfile, setSelectedProfile] = useState(null);
   const [hasUnreadDM, setHasUnreadDM] = useState(false);
 
-  const isHost = user?.uid === hostUid;
+  const isHost = user?.email === "rasajputuwar@gmail.com";
   const cooldownRef = useRef(null);
 
   const [firing,   setFiring]   = useState(false);
   const [msgText,  setMsgText]  = useState("");
   const [msgPhoto, setMsgPhoto] = useState(null);
+  const [msgFile,  setMsgFile]  = useState(null);
   const [posting,  setPosting]  = useState(false);
   const [fullImg,  setFullImg]  = useState(null);
+
+  const [posts,         setPosts]         = useState([]);
+  const [postText,      setPostText]      = useState("");
+  const [postPhoto,     setPostPhoto]     = useState(null);
+  const [postFile,      setPostFile]      = useState(null);
+  const [postCreating,  setPostCreating]  = useState(false);
 
   const lastId    = useRef("");
   const sLoop     = useRef(null);
   const fileInput = useRef(null);
+  const docFileInput = useRef(null);
+  const postPhotoInputRef = useRef(null);
+  const postFileInputRef = useRef(null);
   const msgsEnd   = useRef(null);
   const dmRef     = useRef(null);
 
@@ -704,6 +745,18 @@ export default function SquadAlarm() {
       isMsgInitialLoad = false;
     });
 
+    // ── posts listener
+    const postsRef = ref(db, "posts");
+    onValue(postsRef, (snap) => {
+      const data = snap.val();
+      if (data) {
+        const arr = Object.entries(data).map(([id, p]) => ({ id, ...p })).sort((a, b) => b.ts - a.ts);
+        setPosts(arr);
+      } else {
+        setPosts([]);
+      }
+    });
+
     // ── Foreground notification listener (DM notifications)
     let notifUnsub = null;
     const notifRef = ref(db, `notifications/${user.uid}`);
@@ -778,6 +831,7 @@ export default function SquadAlarm() {
       off(alarmRef);
       off(histRef);
       off(msgRef);
+      off(postsRef);
       off(notifRef);
       off(lobbyRef);
       if (notifUnsub) notifUnsub();
@@ -949,7 +1003,7 @@ export default function SquadAlarm() {
   }, [firing, cooldown, user]);
 
   const postMessage = useCallback(async () => {
-    if ((!msgText.trim() && !msgPhoto) || posting || !user) return;
+    if ((!msgText.trim() && !msgPhoto && !msgFile) || posting || !user) return;
     setPosting(true);
     const m = {
       id: String(Date.now()),
@@ -958,15 +1012,19 @@ export default function SquadAlarm() {
       byPhoto: user.photoURL || null,
       text: msgText.trim() || null,
       photo: msgPhoto || null,
+      file: msgFile ? msgFile.dataUrl : null,
+      fileName: msgFile ? msgFile.name : null,
+      fileSize: msgFile ? msgFile.size : null,
+      fileType: msgFile ? msgFile.type : null,
       ts: Date.now()
     };
     try {
       playPop();
       await push(ref(db, "messages"), m);
-      setMsgText(""); setMsgPhoto(null);
+      setMsgText(""); setMsgPhoto(null); setMsgFile(null);
     } catch { alert("Could not send message."); }
     setPosting(false);
-  }, [msgText, msgPhoto, posting, user]);
+  }, [msgText, msgPhoto, msgFile, posting, user]);
 
   const handlePhotoSelect = async (e) => {
     const file = e.target.files[0];
@@ -975,6 +1033,92 @@ export default function SquadAlarm() {
     setMsgPhoto(compressed);
     e.target.value = "";
   };
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 1024 * 1024) {
+      alert(`File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum is 1MB.`);
+      e.target.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setMsgFile({
+        dataUrl: ev.target.result,
+        name: file.name,
+        size: file.size,
+        type: file.type || 'application/octet-stream',
+      });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const handlePostPhotoSelect = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const compressed = await compressImage(file);
+    setPostPhoto(compressed);
+    e.target.value = "";
+  };
+
+  const handlePostFileSelect = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 1024 * 1024) {
+      alert(`File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum is 1MB.`);
+      e.target.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setPostFile({
+        dataUrl: ev.target.result,
+        name: file.name,
+        size: file.size,
+        type: file.type || 'application/octet-stream',
+      });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const createPost = useCallback(async () => {
+    if ((!postText.trim() && !postPhoto && !postFile) || postCreating || !user) return;
+    setPostCreating(true);
+    const p = {
+      by: user.name,
+      byUid: user.uid,
+      byPhoto: user.photoURL || null,
+      text: postText.trim() || null,
+      photo: postPhoto || null,
+      file: postFile ? postFile.dataUrl : null,
+      fileName: postFile ? postFile.name : null,
+      fileSize: postFile ? postFile.size : null,
+      fileType: postFile ? postFile.type : null,
+      ts: Date.now()
+    };
+    try {
+      playPop();
+      await push(ref(db, "posts"), p);
+      setPostText("");
+      setPostPhoto(null);
+      setPostFile(null);
+    } catch {
+      alert("Could not create post.");
+    }
+    setPostCreating(false);
+  }, [postText, postPhoto, postFile, postCreating, user, db]);
+
+  const deletePost = useCallback(async (postId) => {
+    if (!confirm("Are you sure you want to delete this post?")) return;
+    try {
+      await remove(ref(db, `posts/${postId}`));
+    } catch {
+      alert("Could not delete post.");
+    }
+  }, [db]);
 
   const dismiss = () => { setOverlay(false); clearInterval(sLoop.current); };
 
@@ -1005,46 +1149,291 @@ export default function SquadAlarm() {
         <div className="alarm-hint">⚡ Real-time • Everyone gets siren + vibration instantly</div>
       </div>
 
-      {/* Recent messages */}
-      <div className="section-hd">
-        <span className="section-title">Recent Messages</span>
-        <span className="section-link" onClick={()=>setTab("messages")}>See all →</span>
+      {/* SQUAD FEED (separate Posting Feed) */}
+      <div className="section-hd" style={{ marginTop: 24, marginBottom: 12 }}>
+        <span className="section-title" style={{ fontSize: 18, fontWeight: 800, color: '#f1f5f9', letterSpacing: '0.02em' }}>SQUAD FEED</span>
+        <span style={{ fontSize: 10, fontWeight: 600, color: '#64748b', fontFamily: "'JetBrains Mono', monospace" }}>{posts.length} POST{posts.length !== 1 ? 'S' : ''}</span>
       </div>
-      <div className="recent-list">
-        {messages.filter(m => !ignoredGroupMsgs.has(m.id)).length === 0
-          ? <div className="empty" style={{paddingTop:60}}>
-              <div className="empty-icon">💬</div>
-              <div className="empty-label">NO MESSAGES YET</div>
-            </div>
-          : messages.filter(m => !ignoredGroupMsgs.has(m.id)).slice(0,3).map(m => (
-            <div key={m.id} className="msg-card" style={{
-              background: (m.photo && !m.text) ? 'transparent' : undefined,
-              border: (m.photo && !m.text) ? 'none' : undefined,
-              padding: (m.photo && !m.text) ? '0' : undefined,
+
+      {/* Post Creation Card */}
+      <div style={{
+        background: 'rgba(255, 255, 255, 0.02)',
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+        border: '1px solid rgba(255, 255, 255, 0.07)',
+        borderRadius: 20,
+        padding: 16,
+        marginBottom: 20,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+        boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.2)',
+      }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <Avatar name={user?.name} photo={user?.photoURL} size={36} />
+          <textarea
+            value={postText}
+            onChange={e => setPostText(e.target.value)}
+            placeholder={`Share something with the squad, ${user?.name?.split(" ")[0]}…`}
+            style={{
+              flex: 1,
+              background: 'transparent',
+              border: 'none',
+              color: '#e2e8f0',
+              fontFamily: "'DM Sans', system-ui, sans-serif",
+              fontSize: 14,
+              outline: 'none',
+              resize: 'none',
+              minHeight: 50,
+              paddingTop: 6,
+            }}
+          />
+        </div>
+
+        {/* Post Attachments Preview */}
+        {postPhoto && (
+          <div style={{ position: 'relative', display: 'inline-block', alignSelf: 'flex-start', marginTop: 4 }}>
+            <img src={postPhoto} alt="preview" style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)' }} />
+            <button onClick={() => setPostPhoto(null)} style={{
+              position: 'absolute', top: -6, right: -6, width: 20, height: 20, background: '#ef4444', border: 'none', borderRadius: '50%', color: '#fff', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+            }}>✕</button>
+          </div>
+        )}
+
+        {postFile && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 12, width: '100%'
+          }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: 8, background: 'rgba(59,130,246,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0
             }}>
-              <div style={{ cursor: "pointer" }} onClick={() => {
-                if (m.byUid && m.byUid !== user.uid) {
-                  const targetUser = allUsers[m.byUid];
-                  if (targetUser) {
-                    setSelectedProfile({ uid: targetUser.uid, name: targetUser.name, photoURL: targetUser.photoURL, email: targetUser.email, joinedAt: targetUser.joinedAt });
-                  } else {
-                    setSelectedProfile({ uid: m.byUid, name: m.by, photoURL: m.byPhoto, email: "Unknown", joinedAt: Date.now() });
-                  }
-                }
-              }}>
-                <Avatar name={m.by} photo={m.byPhoto} size={36} />
+              {getFileIcon(postFile.type, postFile.name)}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {postFile.name}
               </div>
-              <div className="mc-right" style={{ padding: (m.photo && !m.text) ? '4px 10px 10px' : undefined }}>
-                <div className="mc-top">
-                  <span className="mc-name">{m.by}</span>
-                  <span className="mc-time">{fmtRelative(m.ts)}</span>
-                </div>
-                {m.text && <div className="mc-text">{m.text}</div>}
-                {m.photo && <img src={m.photo} className="mc-img" alt="attachment" onClick={()=>setFullImg(m.photo)}/>}
+              <div style={{ fontSize: 10, color: '#64748b' }}>
+                {fmtFileSize(postFile.size)}
               </div>
             </div>
-          ))
-        }
+            <button onClick={() => setPostFile(null)} style={{
+              width: 20, height: 20, background: '#ef4444', border: 'none', borderRadius: '50%', color: '#fff', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+            }}>✕</button>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: 10 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => postPhotoInputRef.current?.click()}
+              style={{
+                width: 34, height: 34, borderRadius: 10, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s'
+              }}
+              title="Add Image"
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+            >
+              📷
+            </button>
+            <input
+              ref={postPhotoInputRef}
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={handlePostPhotoSelect}
+            />
+
+            <button
+              onClick={() => postFileInputRef.current?.click()}
+              style={{
+                width: 34, height: 34, borderRadius: 10, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s'
+              }}
+              title="Add File"
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+            >
+              📎
+            </button>
+            <input
+              ref={postFileInputRef}
+              type="file"
+              accept=".pdf,.doc,.docx,.txt,.zip,.rar,.7z,.xlsx,.xls,.csv,.pptx,.ppt,.md,.json,.xml,.mp3,.wav,.mp4,.mov,.avi"
+              style={{ display: 'none' }}
+              onChange={handlePostFileSelect}
+            />
+          </div>
+
+          <button
+            onClick={createPost}
+            disabled={(!postText.trim() && !postPhoto && !postFile) || postCreating}
+            style={{
+              padding: '6px 16px',
+              borderRadius: 12,
+              background: (postText.trim() || postPhoto || postFile) ? 'linear-gradient(135deg, #ef4444, #b91c1c)' : 'rgba(255,255,255,0.05)',
+              border: 'none',
+              color: (postText.trim() || postPhoto || postFile) ? '#fff' : '#475569',
+              fontWeight: 'bold',
+              fontSize: 13,
+              cursor: (postText.trim() || postPhoto || postFile) ? 'pointer' : 'default',
+              transition: 'all 0.2s',
+              boxShadow: (postText.trim() || postPhoto || postFile) ? '0 4px 12px rgba(239, 68, 68, 0.25)' : 'none',
+            }}
+          >
+            {postCreating ? "POSTING..." : "POST"}
+          </button>
+        </div>
+      </div>
+
+      {/* Feed List */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {posts.length === 0 ? (
+          <div className="empty" style={{ padding: '40px 20px', background: 'rgba(255,255,255,0.01)', border: '1px dashed rgba(255,255,255,0.05)', borderRadius: 20 }}>
+            <div className="empty-icon" style={{ fontSize: 28, opacity: 0.3 }}>📣</div>
+            <div className="empty-label" style={{ fontSize: 11, letterSpacing: '0.1em' }}>SQUAD FEED IS EMPTY</div>
+          </div>
+        ) : (
+          posts.map(p => {
+            const canDeletePost = isHost || p.byUid === user?.uid;
+            return (
+              <div key={p.id} style={{
+                background: 'rgba(255, 255, 255, 0.015)',
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.05)',
+                borderRadius: 20,
+                padding: 16,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+                position: 'relative',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
+                transition: 'transform 0.2s, border-color 0.2s',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = 'none';
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)';
+              }}
+              >
+                {/* Post Header */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => {
+                    if (p.byUid && p.byUid !== user.uid) {
+                      const targetUser = allUsers[p.byUid];
+                      if (targetUser) setSelectedProfile(targetUser);
+                      else setSelectedProfile({ uid: p.byUid, name: p.by, photoURL: p.byPhoto, email: "Unknown", joinedAt: Date.now() });
+                    }
+                  }}>
+                    <Avatar name={p.by} photo={p.byPhoto} size={36} />
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#f1f5f9' }}>{p.by}</div>
+                      <div style={{ fontSize: 10, color: '#64748b', fontFamily: "'JetBrains Mono', monospace", marginTop: 1 }}>{fmtRelative(p.ts)}</div>
+                    </div>
+                  </div>
+
+                  {canDeletePost && (
+                    <button
+                      onClick={() => deletePost(p.id)}
+                      style={{
+                        width: 26, height: 26, borderRadius: '50%', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.15)', color: '#ef4444', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s'
+                      }}
+                      title="Delete Post"
+                      onMouseEnter={e => { e.currentTarget.style.background = '#ef4444'; e.currentTarget.style.color = '#fff'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)'; e.currentTarget.style.color = '#ef4444'; }}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Post Content */}
+                {p.text && (
+                  <div style={{ fontSize: 14, lineHeight: 1.5, color: '#e2e8f0', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {p.text}
+                  </div>
+                )}
+
+                {p.photo && (
+                  <img
+                    src={p.photo}
+                    alt="post attachment"
+                    onClick={() => setFullImg(p.photo)}
+                    style={{
+                      width: '100%',
+                      maxHeight: 320,
+                      objectFit: 'cover',
+                      borderRadius: 14,
+                      cursor: 'pointer',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                    }}
+                  />
+                )}
+
+                {p.file && p.fileName && (
+                  <div
+                    onClick={(e) => { e.stopPropagation(); downloadFile(p.file, p.fileName); }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '12px 14px',
+                      background: 'rgba(255,255,255,0.03)',
+                      borderRadius: 14,
+                      cursor: 'pointer',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                      transition: 'background 0.15s, border-color 0.15s',
+                      width: '100%',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'; }}
+                  >
+                    <div style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 10,
+                      background: 'rgba(59,130,246,0.12)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 22,
+                      flexShrink: 0,
+                    }}>
+                      {getFileIcon(p.fileType, p.fileName)}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: 13,
+                        fontWeight: 700,
+                        color: '#f1f5f9',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}>
+                        {p.fileName}
+                      </div>
+                      <div style={{
+                        fontSize: 10,
+                        color: '#64748b',
+                        marginTop: 1,
+                      }}>
+                        {fmtFileSize(p.fileSize)} · Tap to download
+                      </div>
+                    </div>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* Recent alarms */}
@@ -1232,9 +1621,9 @@ export default function SquadAlarm() {
                 className="msg-card" 
                 style={{
                   position:'relative',
-                  background: (m.photo && !m.text) ? 'transparent' : undefined,
-                  border: (m.photo && !m.text) ? 'none' : undefined,
-                  padding: (m.photo && !m.text) ? '0' : undefined,
+                  background: (m.photo && !m.text && !m.file) ? 'transparent' : undefined,
+                  border: (m.photo && !m.text && !m.file) ? 'none' : undefined,
+                  padding: (m.photo && !m.text && !m.file) ? '0' : undefined,
                 }}
               >
                 <div 
@@ -1252,13 +1641,70 @@ export default function SquadAlarm() {
                 >
                   <Avatar name={m.by} photo={m.byPhoto}/>
                 </div>
-                <div className="mc-right" style={{ padding: (m.photo && !m.text) ? '4px 10px 10px' : undefined }}>
+                <div className="mc-right" style={{ padding: (m.photo && !m.text && !m.file) ? '4px 10px 10px' : undefined }}>
                   <div className="mc-top">
                     <span className="mc-name">{m.by}</span>
                     <span className="mc-time">{fmtRelative(m.ts)}</span>
                   </div>
                   {m.text && <div className="mc-text">{m.text}</div>}
                   {m.photo && <img src={m.photo} className="mc-img" alt="attachment" onClick={()=>setFullImg(m.photo)}/>}
+                  {m.file && m.fileName && (
+                    <div
+                      onClick={(e) => { e.stopPropagation(); downloadFile(m.file, m.fileName); }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        padding: '10px 12px',
+                        marginTop: m.text ? 6 : 0,
+                        background: 'rgba(255,255,255,0.06)',
+                        borderRadius: 12,
+                        cursor: 'pointer',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        transition: 'background 0.15s',
+                        minWidth: 180,
+                        maxWidth: '100%',
+                      }}
+                    >
+                      <div style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 10,
+                        background: 'rgba(59,130,246,0.15)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 20,
+                        flexShrink: 0,
+                      }}>
+                        {getFileIcon(m.fileType, m.fileName)}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{
+                          fontSize: 12,
+                          fontWeight: 700,
+                          color: '#e2e8f0',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}>
+                          {m.fileName}
+                        </div>
+                        <div style={{
+                          fontSize: 10,
+                          color: '#64748b',
+                          marginTop: 1,
+                        }}>
+                          {fmtFileSize(m.fileSize)} · Tap to download
+                        </div>
+                      </div>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                      </svg>
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={()=>setActiveUnsendMsg(m)}
@@ -1282,6 +1728,41 @@ export default function SquadAlarm() {
             <button className="msg-remove-photo" onClick={()=>setMsgPhoto(null)}>✕</button>
           </div>
         )}
+        {msgFile && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8,
+            padding: '8px 12px', background: 'rgba(59,130,246,0.08)',
+            border: '1px solid rgba(59,130,246,0.2)', borderRadius: 12,
+          }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: 8,
+              background: 'rgba(59,130,246,0.15)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 18, flexShrink: 0,
+            }}>
+              {getFileIcon(msgFile.type, msgFile.name)}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{
+                fontSize: 12, fontWeight: 700, color: '#e2e8f0',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {msgFile.name}
+              </div>
+              <div style={{ fontSize: 10, color: '#64748b' }}>
+                {fmtFileSize(msgFile.size)}
+              </div>
+            </div>
+            <button onClick={() => setMsgFile(null)} style={{
+              width: 20, height: 20, background: '#ef4444', border: 'none',
+              borderRadius: '50%', color: '#fff', fontSize: 11, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0,
+            }}>
+              ✕
+            </button>
+          </div>
+        )}
         <div className="msg-input-row">
           <button className="msg-photo-btn" onClick={()=>fileInput.current?.click()} title="Attach photo">
             📷
@@ -1294,6 +1775,21 @@ export default function SquadAlarm() {
             style={{display:"none"}}
             onChange={handlePhotoSelect}
           />
+          <button 
+            className="msg-photo-btn" 
+            onClick={()=>docFileInput.current?.click()} 
+            title="Attach file"
+            style={{ marginLeft: 4 }}
+          >
+            📎
+          </button>
+          <input
+            ref={docFileInput}
+            type="file"
+            accept=".pdf,.doc,.docx,.txt,.zip,.rar,.7z,.xlsx,.xls,.csv,.pptx,.ppt,.md,.json,.xml,.mp3,.wav,.mp4,.mov,.avi"
+            style={{display:"none"}}
+            onChange={handleFileSelect}
+          />
           <textarea
             className="msg-textarea"
             placeholder={`Message your team, ${user?.name?.split(" ")[0]}…`}
@@ -1305,7 +1801,7 @@ export default function SquadAlarm() {
           <button
             className="msg-send-btn"
             onClick={postMessage}
-            disabled={(!msgText.trim()&&!msgPhoto)||posting}
+            disabled={(!msgText.trim()&&!msgPhoto&&!msgFile)||posting}
           >
             {posting ? "…" : "➤"}
           </button>
@@ -1663,10 +2159,8 @@ export default function SquadAlarm() {
 
       {/* 1-on-1 Call Overlay — rendered outside tab-body for persistence */}
 
-      {/* STATUS BAR */}
       <div className="sb">
         <div className="sb-left">
-          <div className="sb-dot"/>
           <span className="sb-title">SQUAD ALARM</span>
           {(newMsg || newAlarm) && (
             <div style={{ background: '#ef4444', borderRadius: '10px', padding: '2px 6px', fontSize: '10px', color: '#fff', fontWeight: 'bold', marginLeft: '6px', animation: 'pulse 1.5s infinite' }}>NEW</div>
