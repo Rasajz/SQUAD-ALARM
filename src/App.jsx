@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { db, auth } from "./firebase";
-import { ref, onValue, set, push, off, remove, update, onDisconnect } from "firebase/database";
-import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "firebase/auth";
+import { ref, onValue, set, push, off, remove, update, onDisconnect, get } from "firebase/database";
+import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, sendPasswordResetEmail, FacebookAuthProvider, TwitterAuthProvider } from "firebase/auth";
 import { messaging } from "./firebase";
 import { getToken, onMessage } from "firebase/messaging";
 import VoiceRoom, { CallOverlay } from "./VoiceRoom";
@@ -336,6 +336,26 @@ html,body{height:100%;background:#07090d;overflow:hidden;touch-action:manipulati
 .loading{height:100dvh;background:#07090d;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;font-family:'JetBrains Mono',monospace;}
 .spin{font-size:40px;animation:spin 1s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── AUTHENTICATION EXTENSIONS ── */
+.social-btn{display:flex;align-items:center;justify-content:center;height:44px;border-radius:12px;cursor:pointer;transition:all 0.15s;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#e2e8f0;}
+.social-btn:hover{transform:translateY(-1px);background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.2);}
+.social-btn:active{transform:scale(0.97);}
+.social-btn.google{color:#fff;}
+.social-btn.facebook{color:#1877f2;background:rgba(24,119,242,0.1);border-color:rgba(24,119,242,0.25);}
+.social-btn.facebook:hover{background:rgba(24,119,242,0.18);border-color:rgba(24,119,242,0.4);}
+.social-btn.twitter{color:#fff;background:rgba(255,255,255,0.03);border-color:rgba(255,255,255,0.08);}
+.social-btn.twitter:hover{background:rgba(255,255,255,0.07);border-color:rgba(255,255,255,0.15);}
+.form-divider{display:flex;align-items:center;text-align:center;width:100%;margin:8px 0;font-family:'JetBrains Mono',monospace;font-size:9px;color:#334155;text-transform:uppercase;letter-spacing:0.15em;}
+.form-divider::before,.form-divider::after{content:'';flex:1;border-bottom:1px solid rgba(255,255,255,0.06);}
+.form-divider:not(:empty)::before{margin-right:.8em;}
+.form-divider:not(:empty)::after{margin-left:.8em;}
+.auth-error-banner{width:100%;padding:10px 12px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:12px;color:#fca5a5;font-size:12px;line-height:1.4;word-break:break-word;text-align:center;animation:dmFadeIn 0.2s ease-out;}
+.auth-link{color:#64748b;font-weight:600;cursor:pointer;transition:color 0.15s;}
+.auth-link:hover{color:#ef4444;text-decoration:underline;}
+.auth-link-forgot{color:#475569;cursor:pointer;transition:color 0.15s;}
+.auth-link-forgot:hover{color:#94a3b8;text-decoration:underline;}
+.auth-spinner{width:20px;height:20px;border:2.5px solid rgba(255,255,255,0.25);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite;}
 `;
 
 /* ══════════════════════════════════════════════════
@@ -345,6 +365,15 @@ export default function SquadAlarm() {
   const [phase,    setPhase]    = useState("loading");
   const [user,     setUser]     = useState(null);
   const [tab,      setTab]      = useState("home");
+
+  // Authentication extensions
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authName, setAuthName] = useState("");
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [forgotPass, setForgotPass] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
 
   const [alarm,    setAlarm]    = useState(null);
   const [messages, setMessages] = useState([]);
@@ -379,12 +408,23 @@ export default function SquadAlarm() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
+        // Query database first to see if user already has custom profile properties (e.g. registered name or joined date)
+        let existingUser = null;
+        try {
+          const snap = await get(ref(db, "users/" + firebaseUser.uid));
+          if (snap.exists()) {
+            existingUser = snap.val();
+          }
+        } catch (err) {
+          console.warn("Error checking existing user in DB:", err);
+        }
+
         const userData = {
           uid: firebaseUser.uid,
-          name: firebaseUser.displayName || "Teammate",
+          name: firebaseUser.displayName || existingUser?.name || "Teammate",
           email: firebaseUser.email,
-          photoURL: firebaseUser.photoURL,
-          joinedAt: firebaseUser.metadata.creationTime ? new Date(firebaseUser.metadata.creationTime).getTime() : Date.now()
+          photoURL: firebaseUser.photoURL || existingUser?.photoURL || null,
+          joinedAt: existingUser?.joinedAt || (firebaseUser.metadata.creationTime ? new Date(firebaseUser.metadata.creationTime).getTime() : Date.now())
         };
 
         // Attempt to request push notification permissions and get FCM token
@@ -586,11 +626,124 @@ export default function SquadAlarm() {
   const loginWithGoogle = async () => {
     try {
       getCtx();
+      setAuthLoading(true);
+      setAuthError("");
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } catch (err) {
       console.error(err);
-      alert("Sign-in failed: " + err.message);
+      setAuthError(err.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const loginWithFacebook = async () => {
+    try {
+      getCtx();
+      setAuthLoading(true);
+      setAuthError("");
+      const provider = new FacebookAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (err) {
+      console.error(err);
+      setAuthError(err.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const loginWithTwitter = async () => {
+    try {
+      getCtx();
+      setAuthLoading(true);
+      setAuthError("");
+      const provider = new TwitterAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (err) {
+      console.error(err);
+      setAuthError(err.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleSquadSignUp = async (e) => {
+    if (e) e.preventDefault();
+    if (!authEmail || !authPassword || !authName) {
+      setAuthError("Please fill out all fields.");
+      return;
+    }
+    if (authPassword.length < 6) {
+      setAuthError("Password must be at least 6 characters.");
+      return;
+    }
+    try {
+      getCtx();
+      setAuthLoading(true);
+      setAuthError("");
+      
+      // 1. Create user in Firebase
+      const userCredential = await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+      const firebaseUser = userCredential.user;
+      
+      // 2. Set display name in Auth profile
+      await updateProfile(firebaseUser, { displayName: authName });
+      
+      // 3. Save details directly to Real-time Database
+      const userData = {
+        uid: firebaseUser.uid,
+        name: authName,
+        email: firebaseUser.email,
+        photoURL: null,
+        joinedAt: Date.now()
+      };
+      await set(ref(db, "users/" + firebaseUser.uid), userData);
+      
+    } catch (err) {
+      console.error(err);
+      setAuthError(err.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleSquadLogin = async (e) => {
+    if (e) e.preventDefault();
+    if (!authEmail || !authPassword) {
+      setAuthError("Please enter email and password.");
+      return;
+    }
+    try {
+      getCtx();
+      setAuthLoading(true);
+      setAuthError("");
+      await signInWithEmailAndPassword(auth, authEmail, authPassword);
+    } catch (err) {
+      console.error(err);
+      setAuthError(err.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    if (e) e.preventDefault();
+    if (!authEmail) {
+      setAuthError("Please enter your email to reset password.");
+      return;
+    }
+    try {
+      setAuthLoading(true);
+      setAuthError("");
+      await sendPasswordResetEmail(auth, authEmail);
+      alert("Password reset email sent! Check your inbox.");
+      setForgotPass(false);
+    } catch (err) {
+      console.error(err);
+      setAuthError(err.message);
+    } finally {
+      setAuthLoading(false);
     }
   };
 
@@ -1064,17 +1217,125 @@ export default function SquadAlarm() {
             <div key={i} className="hw-step"><div className="hw-num">{i+1}</div><div className="hw-text"><b style={{color:"#94a3b8"}}>{t}</b> — {d}</div></div>
           ))}
         </div>
+        
         <div className="divider"/>
-        <button className="google-btn" onClick={loginWithGoogle}>
-          <svg viewBox="0 0 24 24" width="20" height="20">
-            <path fill="#EA4335" d="M5.26620003,9.76451675 C6.19908612,6.93863855 8.85444919,4.90909091 12,4.90909091 C13.6909091,4.90909091 15.2181818,5.50909091 16.4181818,6.49090909 L19.9090909,3 C17.7818182,1.14545455 15.0545455,0 12,0 C7.35909091,0 3.32727273,2.69545455 1.34090909,6.62727273 L5.26620003,9.76451675 Z"></path>
-            <path fill="#34A853" d="M16.0407269,18.0125889 C14.9509167,18.7163089 13.5660891,19.0909091 12,19.0909091 C8.85444919,19.0909091 6.19908612,17.0613615 5.26620003,14.2354833 L1.34090909,17.3727273 C3.32727273,21.3045455 7.35909091,24 12,24 C15.0055091,24 18.0664558,22.8946777 20.2560795,20.9750778 L16.0407269,18.0125889 Z"></path>
-            <path fill="#4285F4" d="M24,12 C24,11.1272727 23.9045455,10.375 23.7545455,9.54545455 L12,9.54545455 L12,14.1272727 L18.7245889,14.1272727 C18.1590891,16.5925007 16.8227282,17.4890909 16.0407269,18.0125889 L20.2560795,20.9750778 C22.8208686,18.6620797 24,15.3932736 24,12 Z"></path>
-            <path fill="#FBBC05" d="M5.26620003,9.76451675 C5.01297593,10.5349945 4.87272727,11.3562433 4.87272727,12 C4.87272727,12.6437567 5.01297593,13.4650055 5.26620003,14.2354833 L1.34090909,17.3727273 C0.485227273,15.6713636 0,13.8886364 0,12 C0,10.1113636 0.485227273,8.32863636 1.34090909,6.62727273 L5.26620003,9.76451675 Z"></path>
-          </svg>
-          Sign in with Google
-        </button>
-        <div className="setup-warn">⚠ Alarms and messages are shared with everyone who opens this app.<br/>Share this link only with your teammates.</div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', marginTop: 8 }}>
+          {/* Social Sign In Options */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, width: '100%' }}>
+            <button className="social-btn google" onClick={loginWithGoogle} title="Sign in with Google" disabled={authLoading}>
+              <svg viewBox="0 0 24 24" width="20" height="20">
+                <path fill="#EA4335" d="M5.266 9.765C6.199 6.939 8.854 4.909 12 4.909c1.69 0 3.218.6 4.418 1.582L19.91 3C17.782 1.145 15.055 0 12 0 7.359 0 3.327 2.695 1.341 6.627l3.925 3.138z"/>
+                <path fill="#34A853" d="M16.04 18.013c-1.09.704-2.474 1.078-4.04 1.078-3.146 0-5.801-2.03-6.734-4.856l-3.925 3.137C3.327 21.305 7.359 24 12 24c3.006 0 6.066-1.105 8.256-3.025l-4.215-2.962z"/>
+                <path fill="#4285F4" d="M24 12c0-.873-.095-1.625-.245-2.455H12v4.582h6.725c-.566 2.465-1.902 3.362-2.684 3.885l4.215 2.963C22.821 18.662 24 15.393 24 12z"/>
+                <path fill="#FBBC05" d="M5.266 9.765C5.013 10.535 4.873 11.356 4.873 12c0 .644.14 1.465.393 2.235L1.34 17.373C.485 15.671 0 13.889 0 12c0-1.889.485-3.671 1.341-5.373l3.925 3.138z"/>
+              </svg>
+            </button>
+            
+            <button className="social-btn facebook" onClick={loginWithFacebook} title="Sign in with Facebook" disabled={authLoading}>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+              </svg>
+            </button>
+
+            <button className="social-btn twitter" onClick={loginWithTwitter} title="Sign in with X (Twitter)" disabled={authLoading}>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+              </svg>
+            </button>
+          </div>
+
+          <div className="form-divider">
+            <span>or use a squad account</span>
+          </div>
+
+          {authError && (
+            <div className="auth-error-banner">
+              ⚠️ {authError}
+            </div>
+          )}
+
+          <form onSubmit={forgotPass ? handleResetPassword : isSignUp ? handleSquadSignUp : handleSquadLogin} style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
+            {isSignUp && !forgotPass && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span className="field-label">Your Name</span>
+                <input
+                  type="text"
+                  placeholder="e.g. John Doe"
+                  className="setup-input"
+                  value={authName}
+                  onChange={e => setAuthName(e.target.value)}
+                  disabled={authLoading}
+                  required
+                />
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span className="field-label">Email Address</span>
+              <input
+                type="email"
+                placeholder="you@squad.com"
+                className="setup-input"
+                value={authEmail}
+                onChange={e => setAuthEmail(e.target.value)}
+                disabled={authLoading}
+                required
+              />
+            </div>
+
+            {!forgotPass && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span className="field-label">Password</span>
+                <input
+                  type="password"
+                  placeholder="••••••••"
+                  className="setup-input"
+                  value={authPassword}
+                  onChange={e => setAuthPassword(e.target.value)}
+                  disabled={authLoading}
+                  required
+                />
+              </div>
+            )}
+
+            <button type="submit" className="join-btn" style={{ marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }} disabled={authLoading}>
+              {authLoading ? (
+                <span className="auth-spinner"></span>
+              ) : forgotPass ? (
+                "SEND PASSWORD RESET"
+              ) : isSignUp ? (
+                "CREATE SQUAD ACCOUNT"
+              ) : (
+                "LOG IN TO SQUAD"
+              )}
+            </button>
+          </form>
+
+          {/* Form switch links */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center', marginTop: 8, fontSize: 12 }}>
+            {forgotPass ? (
+              <span className="auth-link" onClick={() => { setForgotPass(false); setAuthError(""); }}>
+                ← Back to Login
+              </span>
+            ) : (
+              <>
+                <span className="auth-link" onClick={() => { setIsSignUp(!isSignUp); setAuthError(""); }}>
+                  {isSignUp ? "Already have a Squad account? Log In" : "Need a Squad account? Create one"}
+                </span>
+                {!isSignUp && (
+                  <span className="auth-link-forgot" onClick={() => { setForgotPass(true); setAuthError(""); }}>
+                    Forgot Password?
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="setup-warn" style={{ marginTop: 12 }}>
+          ⚠️ Alarms and messages are shared with everyone who opens this app.<br/>Share this link only with your teammates.
+        </div>
       </div>
     </div></>
   );
