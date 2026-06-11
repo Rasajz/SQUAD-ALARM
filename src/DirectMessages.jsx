@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { ref, onValue, push, set, remove, off, update, increment } from 'firebase/database';
 import DMVideoCall from './DMVideoCall';
 
@@ -109,7 +109,7 @@ const DM_CSS = `
 /* ══════════════════════════════════════════════════
    DIRECT MESSAGES COMPONENT
 ══════════════════════════════════════════════════ */
-export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarget, playPop, playPing }) {
+const DirectMessages = forwardRef(function DirectMessages({ user, db, isHost, dmTarget, onClearTarget, playPop, playPing }, dmRef) {
   /* ── STATE ──────────────────────────────────── */
   const [view, setView] = useState('list');
   const [selectedUser, setSelectedUser] = useState(null);
@@ -128,13 +128,38 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [inVideoCall, setInVideoCall] = useState(false);
   const [incomingCallInfo, setIncomingCallInfo] = useState(null);
+  const [callMinimized, setCallMinimized] = useState(false);
+  const [callUser, setCallUser] = useState(null); // track who we're calling even after navigating away
+  const [msgFile, setMsgFile] = useState(null); // { dataUrl, name, size, type }
+  const [searchQuery, setSearchQuery] = useState('');
 
   const msgEndRef = useRef(null);
   const fileRef = useRef(null);
+  const docFileRef = useRef(null);
   const typingTimer = useRef(null);
   const typingCheckInterval = useRef(null);
   const shouldAutoScroll = useRef(true);
   const longPressTimer = useRef(null);
+
+  /* ── EXPOSE resetToList TO PARENT ─────────── */
+  useImperativeHandle(dmRef, () => ({
+    resetToList: () => {
+      if (inVideoCall) {
+        setCallMinimized(true);
+        setCallUser(selectedUser);
+      }
+      setView('list');
+      setSelectedUser(null);
+      setMessages([]);
+      setReplyTo(null);
+      setReactingTo(null);
+      setMsgText('');
+      setMsgPhoto(null);
+      setMsgFile(null);
+      setRemoteTyping(false);
+      setShowEmojiPicker(false);
+    }
+  }), [inVideoCall, selectedUser]);
 
   /* ── LOAD ALL USERS ─────────────────────────── */
   useEffect(() => {
@@ -287,6 +312,11 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
   }, []);
 
   const goBack = useCallback(() => {
+    // If in a call, minimize to PiP instead of losing it
+    if (inVideoCall) {
+      setCallMinimized(true);
+      setCallUser(selectedUser);
+    }
     setView('list');
     setSelectedUser(null);
     setMessages([]);
@@ -294,6 +324,7 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
     setReactingTo(null);
     setMsgText('');
     setMsgPhoto(null);
+    setMsgFile(null);
     setRemoteTyping(false);
     setShowEmojiPicker(false);
     // Clear my typing indicator
@@ -301,7 +332,7 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
       const chatId = getChatId(user.uid, selectedUser.uid);
       remove(ref(db, `dm_chats/${chatId}/typing/${user.uid}`));
     }
-  }, [db, user.uid, selectedUser]);
+  }, [db, user.uid, selectedUser, inVideoCall]);
 
   const handleTyping = useCallback(() => {
     if (!selectedUser) return;
@@ -313,13 +344,17 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
   }, [db, user.uid, selectedUser]);
 
   const sendMessage = useCallback(async () => {
-    if ((!msgText.trim() && !msgPhoto) || posting || !selectedUser) return;
+    if ((!msgText.trim() && !msgPhoto && !msgFile) || posting || !selectedUser) return;
     setPosting(true);
 
     const chatId = getChatId(user.uid, selectedUser.uid);
     const msg = {
       text: msgText.trim() || null,
       photo: msgPhoto || null,
+      file: msgFile ? msgFile.dataUrl : null,
+      fileName: msgFile ? msgFile.name : null,
+      fileSize: msgFile ? msgFile.size : null,
+      fileType: msgFile ? msgFile.type : null,
       by: user.name,
       byUid: user.uid,
       byPhoto: user.photoURL || null,
@@ -327,13 +362,16 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
       replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, by: replyTo.by } : null,
     };
 
+    // Determine preview text
+    const previewText = msg.text || (msg.fileName ? `📎 ${msg.fileName}` : '📷 Photo');
+
     try {
       if (playPop) playPop();
       await push(ref(db, `dm_chats/${chatId}/messages`), msg);
 
       // Update my chat list preview
       await set(ref(db, `dm_list/${user.uid}/${selectedUser.uid}`), {
-        lastMsg: msg.text || '📷 Photo',
+        lastMsg: previewText,
         lastTs: msg.ts,
         lastBy: user.name,
         lastByUid: user.uid,
@@ -342,7 +380,7 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
 
       // Update their chat list preview (atomic unread increment)
       await update(ref(db, `dm_list/${selectedUser.uid}/${user.uid}`), {
-        lastMsg: msg.text || '📷 Photo',
+        lastMsg: previewText,
         lastTs: msg.ts,
         lastBy: user.name,
         lastByUid: user.uid,
@@ -353,7 +391,7 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
       await push(ref(db, `notifications/${selectedUser.uid}`), {
         from: user.uid,
         fromName: user.name,
-        message: msg.text || '📷 Photo',
+        message: previewText,
         chatId,
         ts: msg.ts,
         type: 'dm',
@@ -364,6 +402,7 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
 
       setMsgText('');
       setMsgPhoto(null);
+      setMsgFile(null);
       setReplyTo(null);
       setShowEmojiPicker(false);
       shouldAutoScroll.current = true;
@@ -372,7 +411,7 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
       alert('Could not send message.');
     }
     setPosting(false);
-  }, [msgText, msgPhoto, posting, selectedUser, user, db, replyTo]);
+  }, [msgText, msgPhoto, msgFile, posting, selectedUser, user, db, replyTo]);
 
   const handlePhotoSelect = async (e) => {
     const file = e.target.files[0];
@@ -380,6 +419,59 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
     const compressed = await compressImage(file);
     setMsgPhoto(compressed);
     e.target.value = "";
+  };
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    // 1MB limit for Firebase RTDB
+    if (file.size > 1024 * 1024) {
+      alert(`File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum is 1MB.`);
+      e.target.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setMsgFile({
+        dataUrl: ev.target.result,
+        name: file.name,
+        size: file.size,
+        type: file.type || 'application/octet-stream',
+      });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const downloadFile = (dataUrl, fileName) => {
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = fileName || 'download';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const getFileIcon = (type, name) => {
+    if (!type && !name) return '📄';
+    const t = (type || '').toLowerCase();
+    const n = (name || '').toLowerCase();
+    if (t.includes('pdf') || n.endsWith('.pdf')) return '📕';
+    if (t.includes('word') || n.endsWith('.doc') || n.endsWith('.docx')) return '📝';
+    if (t.includes('sheet') || t.includes('excel') || n.endsWith('.xls') || n.endsWith('.xlsx') || n.endsWith('.csv')) return '📊';
+    if (t.includes('presentation') || t.includes('powerpoint') || n.endsWith('.ppt') || n.endsWith('.pptx')) return '📙';
+    if (t.includes('zip') || t.includes('rar') || t.includes('7z') || n.endsWith('.zip') || n.endsWith('.rar')) return '📦';
+    if (t.includes('text') || n.endsWith('.txt') || n.endsWith('.md')) return '📃';
+    if (t.includes('video')) return '🎬';
+    if (t.includes('audio')) return '🎵';
+    return '📄';
+  };
+
+  const fmtFileSize = (bytes) => {
+    if (!bytes) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
   const addReaction = useCallback(async (msgId, emoji) => {
@@ -434,6 +526,7 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
   /* ── DERIVED DATA ───────────────────────────── */
   const chatList = useMemo(() => {
     return allUsers
+      .filter(u => !searchQuery || (u.name || '').toLowerCase().includes(searchQuery.toLowerCase()))
       .map(u => ({
         ...u,
         preview: chatPreviews[u.uid] || null,
@@ -445,7 +538,7 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
         if (aTs === 0 && bTs === 0) return (a.name || '').localeCompare(b.name || '');
         return bTs - aTs;
       });
-  }, [allUsers, chatPreviews, onlineUsers]);
+  }, [allUsers, chatPreviews, onlineUsers, searchQuery]);
 
   const shouldShowAvatar = (msg, idx) => {
     if (msg.byUid === user.uid) return false;
@@ -459,7 +552,7 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
     return new Date(msg.ts).toDateString() !== new Date(messages[idx - 1].ts).toDateString();
   };
 
-  const hasContent = msgText.trim() || msgPhoto;
+  const hasContent = msgText.trim() || msgPhoto || msgFile;
 
   /* ══════════════════════════════════════════════
      RENDER — CHAT LIST
@@ -469,7 +562,6 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
       {/* Header */}
       <div style={{
         padding: '16px 16px 12px',
-        borderBottom: '1px solid rgba(255,255,255,0.06)',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
         <div style={{ fontSize: 20, fontWeight: 800, color: '#f1f5f9', letterSpacing: '0.01em' }}>
@@ -480,6 +572,26 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
           fontFamily: "'JetBrains Mono',monospace", letterSpacing: '0.1em',
         }}>
           {allUsers.length} CONTACT{allUsers.length !== 1 ? 'S' : ''}
+        </div>
+      </div>
+
+      {/* Search Bar */}
+      <div style={{ padding: '0 16px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <div style={{ position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '50%', left: 12, transform: 'translateY(-50%)', opacity: 0.5 }}>🔍</div>
+          <input 
+            type="text" 
+            placeholder="Search contacts..." 
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%', padding: '10px 10px 10px 36px', background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, color: '#f1f5f9',
+              fontSize: 14, outline: 'none', transition: 'border-color 0.2s'
+            }}
+            onFocus={e => e.target.style.borderColor = 'rgba(59,130,246,0.5)'}
+            onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+          />
         </div>
       </div>
 
@@ -592,7 +704,7 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <button 
-              onClick={() => setInVideoCall(true)}
+              onClick={() => { setInVideoCall(true); setCallMinimized(false); setCallUser(selectedUser); }}
               style={{
                 width: 36, height: 36, borderRadius: '50%', background: 'rgba(59,130,246,0.15)',
                 border: '1px solid rgba(59,130,246,0.3)', color: '#3b82f6', cursor: 'pointer',
@@ -804,6 +916,49 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
                             }}
                           />
                         )}
+                        {m.file && m.fileName && (
+                          <div
+                            onClick={(e) => { e.stopPropagation(); downloadFile(m.file, m.fileName); }}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 10,
+                              padding: '10px 12px', marginTop: m.text ? 6 : 0,
+                              background: isMine ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.06)',
+                              borderRadius: 12, cursor: 'pointer',
+                              border: '1px solid ' + (isMine ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.08)'),
+                              transition: 'background 0.15s',
+                              minWidth: 180,
+                            }}
+                          >
+                            <div style={{
+                              width: 38, height: 38, borderRadius: 10,
+                              background: isMine ? 'rgba(255,255,255,0.15)' : 'rgba(59,130,246,0.15)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 20, flexShrink: 0,
+                            }}>
+                              {getFileIcon(m.fileType, m.fileName)}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{
+                                fontSize: 12, fontWeight: 700,
+                                color: isMine ? '#fff' : '#e2e8f0',
+                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                              }}>
+                                {m.fileName}
+                              </div>
+                              <div style={{
+                                fontSize: 10, color: isMine ? 'rgba(255,255,255,0.5)' : '#64748b',
+                                marginTop: 1,
+                              }}>
+                                {fmtFileSize(m.fileSize)} · Tap to download
+                              </div>
+                            </div>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={isMine ? 'rgba(255,255,255,0.5)' : '#64748b'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                              <polyline points="7 10 12 15 17 10" />
+                              <line x1="12" y1="15" x2="12" y2="3" />
+                            </svg>
+                          </div>
+                        )}
                       </div>
 
                       {/* Reactions display */}
@@ -939,6 +1094,43 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
             </div>
           )}
 
+          {/* File attachment preview */}
+          {msgFile && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8,
+              padding: '8px 12px', background: 'rgba(59,130,246,0.08)',
+              border: '1px solid rgba(59,130,246,0.2)', borderRadius: 12,
+            }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: 8,
+                background: 'rgba(59,130,246,0.15)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 18, flexShrink: 0,
+              }}>
+                {getFileIcon(msgFile.type, msgFile.name)}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontSize: 12, fontWeight: 700, color: '#e2e8f0',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  {msgFile.name}
+                </div>
+                <div style={{ fontSize: 10, color: '#64748b' }}>
+                  {fmtFileSize(msgFile.size)}
+                </div>
+              </div>
+              <button onClick={() => setMsgFile(null)} style={{
+                width: 20, height: 20, background: '#ef4444', border: 'none',
+                borderRadius: '50%', color: '#fff', fontSize: 11, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+                ✕
+              </button>
+            </div>
+          )}
+
           {/* Emoji picker */}
           {showEmojiPicker && (
             <div
@@ -1004,6 +1196,27 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
               accept="image/*"
               style={{ display: 'none' }}
               onChange={handlePhotoSelect}
+            />
+            <button
+              onClick={() => docFileRef.current?.click()}
+              style={{
+                width: 38, height: 38, borderRadius: 10,
+                background: msgFile ? 'rgba(59,130,246,0.15)' : 'rgba(255,255,255,0.06)',
+                border: '1px solid ' + (msgFile ? 'rgba(59,130,246,0.3)' : 'rgba(255,255,255,0.1)'),
+                color: msgFile ? '#3b82f6' : '#64748b', fontSize: 18, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0, transition: 'all 0.15s',
+              }}
+              title="Attach file"
+            >
+              📎
+            </button>
+            <input
+              ref={docFileRef}
+              type="file"
+              accept=".pdf,.doc,.docx,.txt,.zip,.rar,.7z,.xlsx,.xls,.csv,.pptx,.ppt,.md,.json,.xml,.mp3,.wav,.mp4,.mov,.avi"
+              style={{ display: 'none' }}
+              onChange={handleFileSelect}
             />
             <textarea
               value={msgText}
@@ -1106,7 +1319,9 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
             <button 
               onClick={() => {
                 setSelectedUser(incomingCallInfo.caller);
+                setCallUser(incomingCallInfo.caller);
                 setInVideoCall(true);
+                setCallMinimized(false);
                 setView('chat');
               }}
               style={{ width: 44, height: 44, borderRadius: '50%', background: '#22c55e', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'vcSpeakGlow 1.5s infinite' }}
@@ -1117,16 +1332,33 @@ export default function DirectMessages({ user, db, isHost, dmTarget, onClearTarg
         </div>
       )}
 
-      {/* ── DM VIDEO CALL FULLSCREEN ── */}
-      {inVideoCall && selectedUser && (
+      {/* ── DM VIDEO CALL (Fullscreen or PiP) ── */}
+      {inVideoCall && (callUser || selectedUser) && (
         <DMVideoCall 
           user={user} 
           db={db} 
-          chatId={getChatId(user.uid, selectedUser.uid)} 
-          otherUser={selectedUser} 
-          onEndCall={() => setInVideoCall(false)} 
+          chatId={getChatId(user.uid, (callUser || selectedUser).uid)} 
+          otherUser={callUser || selectedUser}
+          minimized={callMinimized}
+          onMinimize={() => {
+            setCallMinimized(true);
+            setCallUser(selectedUser || callUser);
+          }}
+          onExpand={() => {
+            const target = callUser || selectedUser;
+            setCallMinimized(false);
+            setSelectedUser(target);
+            setView('chat');
+          }}
+          onEndCall={() => {
+            setInVideoCall(false);
+            setCallMinimized(false);
+            setCallUser(null);
+          }}
         />
       )}
     </>
   );
-}
+});
+
+export default DirectMessages;

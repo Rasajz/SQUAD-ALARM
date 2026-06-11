@@ -373,6 +373,7 @@ export default function SquadAlarm() {
   const sLoop     = useRef(null);
   const fileInput = useRef(null);
   const msgsEnd   = useRef(null);
+  const dmRef     = useRef(null);
 
   /* ── Init & Auth Listener ─────────────────── */
   useEffect(() => {
@@ -1140,7 +1141,7 @@ export default function SquadAlarm() {
         {tab === "messages" && renderMessages()}
         {tab === "members"  && renderMembers()}
         <div style={{ display: tab === "calls" ? "block" : "none", height: "100%" }}>
-          <DirectMessages user={user} db={db} isHost={isHost} dmTarget={dmTarget} onClearTarget={() => setDmTarget(null)} playPop={playPop} playPing={playPing} />
+          <DirectMessages ref={dmRef} user={user} db={db} isHost={isHost} dmTarget={dmTarget} onClearTarget={() => setDmTarget(null)} playPop={playPop} playPing={playPing} />
         </div>
         {tab === "log"      && renderLog()}
         {tab === "settings" && renderSettings()}
@@ -1156,7 +1157,12 @@ export default function SquadAlarm() {
           <button
             key={t.id}
             className={`bnav-btn${tab===t.id?" active":""}`}
-            onClick={()=>{setTab(t.id);if(t.id==="log")setNewAlarm(false);if(t.id==="messages")setNewMsg(false);}}
+            onClick={()=>{
+              setTab(t.id);
+              if(t.id==="log")setNewAlarm(false);
+              if(t.id==="messages")setNewMsg(false);
+              if(t.id==="calls" && dmRef.current) dmRef.current.resetToList();
+            }}
           >
             <div className="bnav-icon bnav-badge">
               {t.icon}
