@@ -102,6 +102,115 @@ const VOICE_CSS = `
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* Red emergency grid lines */
+.war-room-bg {
+  position: absolute;
+  inset: 0;
+  background-color: #050202;
+  background-image: 
+    linear-gradient(rgba(220, 38, 38, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(220, 38, 38, 0.04) 1px, transparent 1px);
+  background-size: 30px 30px;
+  background-position: center;
+  z-index: 0;
+  overflow: hidden;
+}
+
+/* Conic radar scanner sweep */
+.war-room-radar {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(80vh, 80vw);
+  height: min(80vh, 80vw);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle, transparent 40%, rgba(239, 68, 68, 0.02) 70%),
+              conic-gradient(from 0deg, rgba(239, 68, 68, 0.15) 0deg, transparent 90deg);
+  animation: radarSweep 6s linear infinite;
+}
+
+.war-room-radar-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border: 1px dashed rgba(239, 68, 68, 0.1);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+@keyframes radarSweep {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+/* Sci-fi HUD corners / Brackets */
+.hud-card {
+  position: relative;
+  background: rgba(15, 5, 5, 0.75);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  padding: 16px;
+  border-radius: 4px; /* blocky tech aesthetic */
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5), inset 0 0 15px rgba(239, 68, 68, 0.05);
+  transition: all 0.3s;
+}
+
+.hud-card::before, .hud-card::after, .hud-card-inner::before, .hud-card-inner::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-color: #ef4444;
+  border-style: solid;
+  pointer-events: none;
+}
+/* Top-left */
+.hud-card::before {
+  top: -1px; left: -1px;
+  border-width: 2px 0 0 2px;
+}
+/* Top-right */
+.hud-card::after {
+  top: -1px; right: -1px;
+  border-width: 2px 2px 0 0;
+}
+/* Bottom-left */
+.hud-card-inner::before {
+  bottom: -1px; left: -1px;
+  border-width: 0 0 2px 2px;
+}
+/* Bottom-right */
+.hud-card-inner::after {
+  bottom: -1px; right: -1px;
+  border-width: 0 2px 2px 0;
+}
+
+/* Pulsing voice scope */
+.voice-scope-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.voice-scope-glow {
+  position: absolute;
+  inset: -12px;
+  border-radius: 50%;
+  border: 2px solid #22c55e;
+  opacity: 0;
+  animation: voicePulseGlow 1.5s cubic-bezier(0.1, 0.8, 0.3, 1) infinite;
+}
+
+@keyframes voicePulseGlow {
+  0% { transform: scale(0.9); opacity: 0.8; }
+  100% { transform: scale(1.4); opacity: 0; }
+}
 `;
 
 // ── Avatar ───────────────────────────────────────
@@ -374,12 +483,24 @@ export default function VoiceRoom({ user, db }) {
 
   return (
     <div style={{
+      position: 'relative',
       padding: 20, display: 'flex', flexDirection: 'column',
       alignItems: 'center', gap: 20, height: '100%',
+      overflow: 'hidden'
     }}>
       <style>{VOICE_CSS}</style>
+      
+      {inRoom && (
+        <div className="war-room-bg">
+          <div className="war-room-radar" />
+          <div className="war-room-radar-ring" style={{ width: '40%', height: '40%' }} />
+          <div className="war-room-radar-ring" style={{ width: '60%', height: '60%' }} />
+          <div className="war-room-radar-ring" style={{ width: '85%', height: '85%' }} />
+        </div>
+      )}
+
       {!inRoom ? (
-        <div style={{ textAlign: 'center', padding: '40px 0' }}>
+        <div style={{ textAlign: 'center', padding: '40px 0', position: 'relative', zIndex: 1 }}>
           <div style={{ fontSize: 64, marginBottom: 16, textShadow: '0 0 20px rgba(239,68,68,0.6)' }}>♞ ⚔</div>
           <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 8, color: '#f87171', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
             Enter The War Room
@@ -402,30 +523,61 @@ export default function VoiceRoom({ user, db }) {
           </button>
         </div>
       ) : (
-        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24, position: 'relative' }}>
-          <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', fontSize: 180, opacity: 0.03, pointerEvents: 'none' }}>♞</div>
+        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24, position: 'relative', zIndex: 1 }}>
+          {/* Telemetry/Tactical Info */}
           <div style={{
-            display: 'flex', flexWrap: 'wrap', gap: 20, justifyContent: 'center', width: '100%', position: 'relative', zIndex: 1
+            display: 'flex',
+            justifyContent: 'space-between',
+            width: '100%',
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: '11px',
+            color: '#ef4444',
+            borderBottom: '1px solid rgba(239, 68, 68, 0.2)',
+            paddingBottom: '8px',
+            textShadow: '0 0 4px rgba(239, 68, 68, 0.4)'
           }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-              <VRAvatar name={user.name} photo={user.photoURL} size={64} speaking={false} stream={stream} />
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1' }}>You</span>
-              {isMuted && <span style={{ fontSize: 9, color: '#ef4444', fontWeight: 600 }}>MUTED</span>}
-            </div>
-            {peers.map(p => (
-              <div key={p.uid} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                <VRAvatar name={p.name} photo={p.photoURL} size={64} speaking={speakingUsers.has(p.uid)} stream={p.stream} />
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#cbd5e1' }}>{p.name?.split(' ')[0]}</span>
-              </div>
-            ))}
+            <span>[SYS STATUS: ACTIVE COMMS]</span>
+            <span>[PEERS ONLINE: {1 + peers.length}]</span>
           </div>
+
+          <div style={{
+            display: 'flex', flexWrap: 'wrap', gap: 24, justifyContent: 'center', width: '100%', position: 'relative', zIndex: 1
+          }}>
+            <div className="hud-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, width: 140 }}>
+              <div className="hud-card-inner" />
+              <div className="voice-scope-container">
+                <VRAvatar name={user.name} photo={user.photoURL} size={64} speaking={false} stream={stream} />
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#fca5a5', textAlign: 'center', textOverflow: 'ellipsis', overflow: 'hidden', width: '100%' }}>You</span>
+              {isMuted && <span style={{ fontSize: 9, color: '#ef4444', fontWeight: 800, fontFamily: "'JetBrains Mono', monospace" }}>[MUTED]</span>}
+            </div>
+
+            {peers.map(p => {
+              const speaking = speakingUsers.has(p.uid);
+              return (
+                <div key={p.uid} className="hud-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, width: 140 }}>
+                  <div className="hud-card-inner" />
+                  <div className="voice-scope-container">
+                    {speaking && <div className="voice-scope-glow" />}
+                    <VRAvatar name={p.name} photo={p.photoURL} size={64} speaking={speaking} stream={p.stream} />
+                  </div>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: speaking ? '#22c55e' : '#cbd5e1', textAlign: 'center', textOverflow: 'ellipsis', overflow: 'hidden', width: '100%' }}>
+                    {p.name?.split(' ')[0]}
+                  </span>
+                  {speaking && <span style={{ fontSize: 9, color: '#22c55e', fontWeight: 800, fontFamily: "'JetBrains Mono', monospace" }}>[TRANSMITTING]</span>}
+                </div>
+              );
+            })}
+          </div>
+
           <div style={{ display: 'flex', gap: 12 }}>
             <button onClick={toggleMute} style={{
               width: 54, height: 54, borderRadius: '50%',
-              background: isMuted ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.06)',
-              border: `1px solid ${isMuted ? 'rgba(239,68,68,0.3)' : 'rgba(255,255,255,0.12)'}`,
+              background: isMuted ? 'rgba(239,68,68,0.25)' : 'rgba(255,255,255,0.06)',
+              border: `1px solid ${isMuted ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.12)'}`,
               cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
               transition: 'all 0.2s',
+              boxShadow: isMuted ? '0 0 15px rgba(239,68,68,0.3)' : 'none'
             }}>
               {isMuted ? Icons.micOff('#ef4444', 22) : Icons.mic('#e2e8f0', 22)}
             </button>
@@ -436,7 +588,7 @@ export default function VoiceRoom({ user, db }) {
               justifyContent: 'center', boxShadow: '0 4px 14px rgba(239,68,68,0.4)',
               gap: 8, letterSpacing: '0.03em',
             }}>
-              {Icons.phoneOff('#fff', 18)} LEAVE
+              {Icons.phoneOff('#fff', 18)} LEAVE ROOM
             </button>
           </div>
         </div>
@@ -458,6 +610,60 @@ export function CallOverlay({ user, db }) {
   const [minimized, setMinimized] = useState(false);
   const [remoteSpeaking, setRemoteSpeaking] = useState(false);
   const [callStatus, setCallStatus] = useState('');
+
+  const [facingMode, setFacingMode] = useState('user');
+  const [speakerMuted, setSpeakerMuted] = useState(false);
+  const videoElementRef = useRef(null);
+
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (document.hidden && videoElementRef.current && callStatus === 'active') {
+        try {
+          if (document.pictureInPictureElement !== videoElementRef.current) {
+            await videoElementRef.current.requestPictureInPicture();
+          }
+        } catch (err) {
+          console.warn("Failed to enter Picture-in-Picture:", err);
+        }
+      }
+    };
+
+    const handleExpandCall = () => {
+      setMinimized(false);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('expand-voice-call', handleExpandCall);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('expand-voice-call', handleExpandCall);
+    };
+  }, [callStatus]);
+
+  const switchCamera = async () => {
+    if (!streamRef.current) return;
+    const newMode = facingMode === 'user' ? 'environment' : 'user';
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: newMode, width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      const oldVideoTrack = streamRef.current.getVideoTracks()[0];
+      const newVideoTrack = newStream.getVideoTracks()[0];
+      
+      streamRef.current.removeTrack(oldVideoTrack);
+      streamRef.current.addTrack(newVideoTrack);
+      oldVideoTrack.stop();
+      
+      setIsVideoOn(true);
+      setFacingMode(newMode);
+      
+      if (peerRef.current) {
+        peerRef.current.replaceTrack(oldVideoTrack, newVideoTrack, streamRef.current);
+      }
+    } catch (err) {
+      console.error("Camera switch failed", err);
+    }
+  };
 
   // Drag state
   const [dragPos, setDragPos] = useState({ x: 16, y: 80 });
@@ -535,6 +741,8 @@ export function CallOverlay({ user, db }) {
     setMinimized(false);
     setRemoteSpeaking(false);
     setCallStatus('');
+    setFacingMode('user');
+    setSpeakerMuted(false);
   }, [db, fullCleanup]);
 
   // ── Setup WebRTC peer ──
@@ -880,23 +1088,74 @@ export function CallOverlay({ user, db }) {
                 </div>
                 <span style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0' }}>{otherName}</span>
                 {remoteStream && (
-                  <audio ref={el => { if (el && el.srcObject !== remoteStream) { el.srcObject = remoteStream; el.play().catch(() => {}); } }} autoPlay playsInline style={{ display: 'none' }} />
+                  remoteStream.getVideoTracks().length > 0 ? (
+                    <video
+                      ref={el => {
+                        if (el) {
+                          if (el.srcObject !== remoteStream) {
+                            el.srcObject = remoteStream;
+                            el.play().catch(() => {});
+                          }
+                          videoElementRef.current = el;
+                        }
+                      }}
+                      autoPlay
+                      playsInline
+                      muted={speakerMuted}
+                      style={{
+                        width: '100%',
+                        height: 140,
+                        borderRadius: 12,
+                        objectFit: 'cover',
+                        marginTop: 10,
+                        border: '1px solid rgba(255,255,255,0.1)'
+                      }}
+                    />
+                  ) : (
+                    <audio
+                      ref={el => {
+                        if (el && el.srcObject !== remoteStream) {
+                          el.srcObject = remoteStream;
+                          el.play().catch(() => {});
+                        }
+                      }}
+                      autoPlay
+                      playsInline
+                      muted={speakerMuted}
+                      style={{ display: 'none' }}
+                    />
+                  )
                 )}
               </div>
 
               {/* Controls */}
               <div style={{
-                display: 'flex', justifyContent: 'center', gap: 14,
+                display: 'flex', justifyContent: 'center', gap: 10,
                 padding: '8px 16px 16px',
               }}>
                 <CallBtn
                   onClick={toggleMute}
                   bg={isMuted ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.06)'}
                   border={`1px solid ${isMuted ? 'rgba(239,68,68,0.3)' : 'rgba(255,255,255,0.1)'}`}
-                  title={isMuted ? 'Unmute' : 'Mute'}
+                  title={isMuted ? 'Unmute Mic' : 'Mute Mic'}
                 >
                   {isMuted ? Icons.micOff('#ef4444', 20) : Icons.mic('#e2e8f0', 20)}
                 </CallBtn>
+
+                {/* Speaker Mute */}
+                <CallBtn
+                  onClick={() => setSpeakerMuted(!speakerMuted)}
+                  bg={speakerMuted ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.06)'}
+                  border={`1px solid ${speakerMuted ? 'rgba(239,68,68,0.3)' : 'rgba(255,255,255,0.1)'}`}
+                  title={speakerMuted ? 'Unmute Speaker' : 'Mute Speaker'}
+                >
+                  {speakerMuted ? (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
+                  ) : (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e2e8f0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+                  )}
+                </CallBtn>
+
                 <CallBtn
                   onClick={toggleCamera}
                   bg={isVideoOn ? 'rgba(59,130,246,0.15)' : 'rgba(255,255,255,0.06)'}
@@ -905,6 +1164,19 @@ export function CallOverlay({ user, db }) {
                 >
                   {isVideoOn ? Icons.video('#3b82f6', 20) : Icons.videoOff('#94a3b8', 20)}
                 </CallBtn>
+
+                {/* Camera Flip */}
+                {isVideoOn && (
+                  <CallBtn
+                    onClick={switchCamera}
+                    bg="rgba(255,255,255,0.06)"
+                    border="1px solid rgba(255,255,255,0.1)"
+                    title="Flip Camera"
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e2e8f0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
+                  </CallBtn>
+                )}
+
                 <CallBtn onClick={endCall} bg="#ef4444" title="End Call">
                   {Icons.phoneOff('#fff', 20)}
                 </CallBtn>

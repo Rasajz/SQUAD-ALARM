@@ -322,7 +322,7 @@ export default function DMVideoCall({ user, db, chatId, otherUser, onEndCall, mi
             <video 
               ref={el => { if(el && el.srcObject !== (swapped ? localStream : remoteStream)) el.srcObject = (swapped ? localStream : remoteStream); }}
               autoPlay playsInline muted={swapped || speakerMuted}
-              style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%', objectFit: 'contain' }}
+              style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%', objectFit: 'cover' }}
             />
           </>
         ) : (

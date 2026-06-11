@@ -55,29 +55,53 @@ function buzz() { try { navigator.vibrate?.([300,80,300,80,500]); } catch (_) {}
 function playPop() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
-    osc.type = 'sine'; osc.frequency.setValueAtTime(400, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.1);
-    gain.gain.setValueAtTime(0.5, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
-    osc.start(); osc.stop(ctx.currentTime + 0.1);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(320, now);
+    osc.frequency.exponentialRampToValueAtTime(60, now + 0.08);
+    gain.gain.setValueAtTime(0.4, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.09);
   } catch(e) {}
 }
 
 function playPing() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
-    osc.type = 'sine'; osc.frequency.setValueAtTime(800, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.05);
-    gain.gain.setValueAtTime(0, ctx.currentTime);
-    gain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
-    osc.start(); osc.stop(ctx.currentTime + 0.3);
+    const now = ctx.currentTime;
+    
+    // Bass body
+    const oscBass = ctx.createOscillator();
+    const gainBass = ctx.createGain();
+    oscBass.type = 'sine';
+    oscBass.frequency.setValueAtTime(160, now);
+    oscBass.frequency.exponentialRampToValueAtTime(75, now + 0.25);
+    gainBass.gain.setValueAtTime(0.65, now);
+    gainBass.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+    
+    // High warm bell chime
+    const oscChime = ctx.createOscillator();
+    const gainChime = ctx.createGain();
+    oscChime.type = 'sine';
+    oscChime.frequency.setValueAtTime(880, now);
+    oscChime.frequency.setValueAtTime(1046.5, now + 0.045);
+    gainChime.gain.setValueAtTime(0.35, now);
+    gainChime.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+
+    oscBass.connect(gainBass);
+    oscChime.connect(gainChime);
+    
+    gainBass.connect(ctx.destination);
+    gainChime.connect(ctx.destination);
+
+    oscBass.start(now);
+    oscChime.start(now);
+    oscBass.stop(now + 0.3);
+    oscChime.stop(now + 0.3);
   } catch(e) {}
 }
 
@@ -300,13 +324,71 @@ html,body{height:100%;background:#07090d;overflow:hidden;touch-action:manipulati
 .info-line b{color:#94a3b8;font-weight:700;}
 
 /* ── BOTTOM NAV ──────────────────────────── */
-.bnav{display:flex;background:rgba(10,12,18,.95);border-top:1px solid rgba(255,255,255,.08);flex-shrink:0;padding-bottom:env(safe-area-inset-bottom);}
-.bnav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 4px 8px;cursor:pointer;border:none;background:transparent;color:#334155;transition:color .15s;gap:3px;}
-.bnav-btn.active{color:#e2e8f0;}
+.bnav{
+  display:flex;
+  background:rgba(10,12,18,0.7);
+  backdrop-filter:blur(24px);
+  -webkit-backdrop-filter:blur(24px);
+  border-top:1px solid rgba(255,255,255,0.08);
+  flex-shrink:0;
+  padding-bottom:env(safe-area-inset-bottom);
+  box-shadow:0 -8px 32px rgba(0,0,0,0.5);
+}
+.bnav-btn{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  padding:12px 4px 10px;
+  cursor:pointer;
+  border:none;
+  background:transparent;
+  color:#475569;
+  transition:all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  gap:4px;
+  position:relative;
+  overflow:hidden;
+}
+.bnav-btn::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%) scaleX(0);
+  width: 30%;
+  height: 3px;
+  background: #dc2626;
+  border-radius: 4px;
+  transition: transform 0.25s ease;
+}
+.bnav-btn.active{
+  color:#f1f5f9;
+  transform:translateY(-2px);
+}
+.bnav-btn.active::after {
+  transform: translateX(-50%) scaleX(1);
+}
+@media (hover: hover) {
+  .bnav-btn:hover {
+    color:#f1f5f9;
+    background: rgba(255,255,255,0.04);
+    transform: scale(1.1) translateY(-2px);
+  }
+}
 .bnav-icon{font-size:20px;line-height:1;}
 .bnav-label{font-size:9px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;}
 .bnav-badge{position:relative;}
 .badge-dot{position:absolute;top:-2px;right:-4px;width:7px;height:7px;border-radius:50%;background:#ef4444;border:1.5px solid #07090d;}
+
+/* ── TAB TRANSITIONS ── */
+.tab-body > div, .tab-body > form, .tab-body > section {
+  animation: tabSlideIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+@keyframes tabSlideIn {
+  from { opacity: 0; transform: scale(0.97) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
 
 /* ── SETUP SCREEN ────────────────────────── */
 .setup-bg{height:100dvh;background:#07090d;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;font-family:'DM Sans',sans-serif;}
@@ -356,6 +438,10 @@ html,body{height:100%;background:#07090d;overflow:hidden;touch-action:manipulati
 .auth-link-forgot{color:#475569;cursor:pointer;transition:color 0.15s;}
 .auth-link-forgot:hover{color:#94a3b8;text-decoration:underline;}
 .auth-spinner{width:20px;height:20px;border:2.5px solid rgba(255,255,255,0.25);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite;}
+@keyframes bannerPulse {
+  0%, 100% { background: rgba(34, 197, 94, 0.15); }
+  50% { background: rgba(34, 197, 94, 0.25); }
+}
 `;
 
 /* ══════════════════════════════════════════════════
@@ -374,6 +460,11 @@ export default function SquadAlarm() {
   const [forgotPass, setForgotPass] = useState(false);
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
+
+  // Comms header & unsend extensions
+  const [activeCallBarInfo, setActiveCallBarInfo] = useState(null);
+  const [ignoredGroupMsgs, setIgnoredGroupMsgs] = useState(new Set());
+  const [activeUnsendMsg, setActiveUnsendMsg] = useState(null);
 
   const [alarm,    setAlarm]    = useState(null);
   const [messages, setMessages] = useState([]);
@@ -461,6 +552,78 @@ export default function SquadAlarm() {
     });
     return unsubscribe;
   }, []);
+
+  // Load user-specific unsent messages from localStorage
+  useEffect(() => {
+    if (user?.uid) {
+      const ignored = JSON.parse(localStorage.getItem(`ignored_group_${user.uid}`) || "[]");
+      setIgnoredGroupMsgs(new Set(ignored));
+    }
+  }, [user?.uid]);
+
+  // Monitor database calls configuration to set active status bar
+  useEffect(() => {
+    if (!user || phase !== "main") return;
+
+    // Listen to 1-on-1 calls
+    const callsRef = ref(db, 'calls');
+    const callsHandler = onValue(callsRef, snap => {
+      const data = snap.val();
+      if (!data) {
+        setActiveCallBarInfo(prev => prev?.type === 'voice_overlay' ? null : prev);
+        return;
+      }
+      let foundActive = null;
+      Object.entries(data).forEach(([id, c]) => {
+        if ((c.caller === user.uid || c.receiver === user.uid) && (c.status === 'ringing' || c.status === 'active')) {
+          foundActive = {
+            id,
+            type: 'voice_overlay',
+            name: c.caller === user.uid ? c.receiverName : c.callerName,
+            status: c.status
+          };
+        }
+      });
+      if (foundActive) {
+        setActiveCallBarInfo(foundActive);
+      } else {
+        setActiveCallBarInfo(prev => prev?.type === 'voice_overlay' ? null : prev);
+      }
+    });
+
+    // Listen to DM calls
+    const dmCallsRef = ref(db, 'dm_calls');
+    const dmCallsHandler = onValue(dmCallsRef, snap => {
+      const data = snap.val();
+      if (!data) {
+        setActiveCallBarInfo(prev => prev?.type === 'dm_video' ? null : prev);
+        return;
+      }
+      let foundActive = null;
+      Object.entries(data).forEach(([chatId, c]) => {
+        if (chatId.includes(user.uid) && (c.status === 'ringing' || c.status === 'active')) {
+          const otherUid = chatId.split('_').find(id => id !== user.uid);
+          const otherUserRecord = Object.values(allUsers).find(u => u.uid === otherUid);
+          foundActive = {
+            id: chatId,
+            type: 'dm_video',
+            name: otherUserRecord?.name || 'Teammate',
+            status: c.status
+          };
+        }
+      });
+      if (foundActive) {
+        setActiveCallBarInfo(foundActive);
+      } else {
+        setActiveCallBarInfo(prev => prev?.type === 'dm_video' ? null : prev);
+      }
+    });
+
+    return () => {
+      off(callsRef);
+      off(dmCallsRef);
+    };
+  }, [user, phase, allUsers]);
 
   /* ── Firebase Real-time Listeners ────────── */
   useEffect(() => {
@@ -848,13 +1011,17 @@ export default function SquadAlarm() {
         <span className="section-link" onClick={()=>setTab("messages")}>See all →</span>
       </div>
       <div className="recent-list">
-        {messages.length === 0
+        {messages.filter(m => !ignoredGroupMsgs.has(m.id)).length === 0
           ? <div className="empty" style={{paddingTop:60}}>
               <div className="empty-icon">💬</div>
               <div className="empty-label">NO MESSAGES YET</div>
             </div>
-          : messages.slice(0,3).map(m => (
-            <div key={m.id} className="msg-card">
+          : messages.filter(m => !ignoredGroupMsgs.has(m.id)).slice(0,3).map(m => (
+            <div key={m.id} className="msg-card" style={{
+              background: (m.photo && !m.text) ? 'transparent' : undefined,
+              border: (m.photo && !m.text) ? 'none' : undefined,
+              padding: (m.photo && !m.text) ? '0' : undefined,
+            }}>
               <div style={{ cursor: "pointer" }} onClick={() => {
                 if (m.byUid && m.byUid !== user.uid) {
                   const targetUser = allUsers[m.byUid];
@@ -867,7 +1034,7 @@ export default function SquadAlarm() {
               }}>
                 <Avatar name={m.by} photo={m.byPhoto} size={36} />
               </div>
-              <div className="mc-right">
+              <div className="mc-right" style={{ padding: (m.photo && !m.text) ? '4px 10px 10px' : undefined }}>
                 <div className="mc-top">
                   <span className="mc-name">{m.by}</span>
                   <span className="mc-time">{fmtRelative(m.ts)}</span>
@@ -903,8 +1070,13 @@ export default function SquadAlarm() {
   );
 
   const deleteGroupMessage = useCallback(async (msgKey) => {
-    if (!isHost) return;
-    if (!confirm("Delete this message?")) return;
+    if (!user) return;
+    const msg = messages.find(m => m.id === msgKey);
+    if (!isHost && msg?.byUid !== user.uid) {
+      alert("You can only unsend your own messages.");
+      return;
+    }
+    
     const msgRef = ref(db, "messages");
     onValue(msgRef, (snap) => {
       const data = snap.val();
@@ -913,7 +1085,16 @@ export default function SquadAlarm() {
         if (entry) remove(ref(db, `messages/${entry[0]}`));
       }
     }, { onlyOnce: true });
-  }, [isHost]);
+  }, [db, isHost, user, messages]);
+
+  const unsendGroupMsgForMe = (msgId) => {
+    if (!user) return;
+    const key = `ignored_group_${user.uid}`;
+    const current = JSON.parse(localStorage.getItem(key) || "[]");
+    current.push(msgId);
+    localStorage.setItem(key, JSON.stringify(current));
+    setIgnoredGroupMsgs(new Set(current));
+  };
 
   const renderMembers = () => (
     <div className="msgs-wrap">
@@ -952,53 +1133,145 @@ export default function SquadAlarm() {
     </div>
   );
 
-  const renderMessages = () => (
-    <div className="msgs-wrap">
-      <div className="msgs-list">
-        {messages.length === 0
-          ? <div className="empty">
-              <div className="empty-icon">💬</div>
-              <div className="empty-label">NO MESSAGES YET<br/>SAY SOMETHING TO YOUR TEAM</div>
-            </div>
-          : messages.map(m => (
-            <div key={m.id} className="msg-card" style={{position:'relative'}}>
+  const UnsendModal = () => activeUnsendMsg && (
+    <div className="img-fullscreen" onClick={()=>setActiveUnsendMsg(null)}>
+      <div className="setup-card" onClick={e=>e.stopPropagation()} style={{maxWidth:280, gap:16}}>
+        <div style={{fontSize:16,fontWeight:800,color:"#e2e8f0"}}>Message Options</div>
+        <button className="join-btn" style={{background:'#334155', fontSize:14, padding: 12, border: 'none', color: '#fff', cursor: 'pointer', borderRadius: 8}} onClick={() => {
+          unsendGroupMsgForMe(activeUnsendMsg.id);
+          setActiveUnsendMsg(null);
+        }}>Unsend for Me</button>
+        {(isHost || activeUnsendMsg.byUid === user?.uid) && (
+          <button className="join-btn" style={{background:'#ef4444', fontSize:14, padding: 12, border: 'none', color: '#fff', cursor: 'pointer', borderRadius: 8}} onClick={() => {
+            deleteGroupMessage(activeUnsendMsg.id);
+            setActiveUnsendMsg(null);
+          }}>Unsend for Everyone</button>
+        )}
+        <button className="test-btn" style={{width:'100%'}} onClick={()=>setActiveUnsendMsg(null)}>Cancel</button>
+      </div>
+    </div>
+  );
+
+  const handleExpandCall = () => {
+    if (!activeCallBarInfo) return;
+    if (activeCallBarInfo.type === 'voice_overlay') {
+      window.dispatchEvent(new CustomEvent('expand-voice-call'));
+    } else if (activeCallBarInfo.type === 'dm_video') {
+      setTab('calls');
+      setTimeout(() => {
+        if (dmRef.current) {
+          dmRef.current.expandCall();
+        }
+      }, 50);
+    }
+  };
+
+  const ActiveCallBanner = () => {
+    const [duration, setDuration] = useState(0);
+
+    useEffect(() => {
+      if (!activeCallBarInfo || !activeCallBarInfo.startedAt) return;
+      const interval = setInterval(() => {
+        setDuration(Math.floor((Date.now() - activeCallBarInfo.startedAt) / 1000));
+      }, 1000);
+      return () => clearInterval(interval);
+    }, []);
+
+    const fmtDuration = (s) => {
+      const m = Math.floor(s / 60);
+      const sec = s % 60;
+      return `${m}:${sec.toString().padStart(2, '0')}`;
+    };
+
+    if (!activeCallBarInfo) return null;
+
+    return (
+      <div 
+        onClick={handleExpandCall}
+        style={{
+          background: 'rgba(34, 197, 94, 0.15)',
+          backdropFilter: 'blur(20px)',
+          borderBottom: '1px solid rgba(34, 197, 94, 0.3)',
+          padding: '10px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          cursor: 'pointer',
+          fontSize: '13px',
+          fontWeight: 'bold',
+          color: '#4ade80',
+          animation: 'bannerPulse 2s infinite',
+          fontFamily: "'JetBrains Mono', monospace",
+          zIndex: 9999,
+          position: 'relative'
+        }}
+      >
+        <span style={{
+          width: 8, height: 8, borderRadius: '50%', background: '#22c55e',
+          boxShadow: '0 0 8px #22c55e', display: 'inline-block'
+        }}/>
+        <span>🟢 TACTICAL COMMS ACTIVE: {activeCallBarInfo.name} ({activeCallBarInfo.startedAt ? fmtDuration(duration) : 'connecting'}) · TAP TO EXPAND</span>
+      </div>
+    );
+  };
+
+  const renderMessages = () => {
+    const activeMsgs = messages.filter(m => !ignoredGroupMsgs.has(m.id));
+    return (
+      <div className="msgs-wrap">
+        <div className="msgs-list">
+          {activeMsgs.length === 0
+            ? <div className="empty">
+                <div className="empty-icon">💬</div>
+                <div className="empty-label">NO MESSAGES YET<br/>SAY SOMETHING TO YOUR TEAM</div>
+              </div>
+            : activeMsgs.map(m => (
               <div 
-                style={{cursor: m.byUid && m.byUid !== user.uid ? 'pointer' : 'default', flexShrink: 0}}
-                onClick={() => {
-                  if (m.byUid && m.byUid !== user.uid) {
-                    const targetUser = allUsers[m.byUid];
-                    if (targetUser) setSelectedProfile(targetUser);
-                    else {
-                        setDmTarget({ uid: m.byUid, name: m.by, photoURL: m.byPhoto });
-                        setTab("calls");
-                    }
-                  }
+                key={m.id} 
+                className="msg-card" 
+                style={{
+                  position:'relative',
+                  background: (m.photo && !m.text) ? 'transparent' : undefined,
+                  border: (m.photo && !m.text) ? 'none' : undefined,
+                  padding: (m.photo && !m.text) ? '0' : undefined,
                 }}
               >
-                <Avatar name={m.by} photo={m.byPhoto}/>
-              </div>
-              <div className="mc-right">
-                <div className="mc-top">
-                  <span className="mc-name">{m.by}</span>
-                  <span className="mc-time">{fmtRelative(m.ts)}</span>
-                </div>
-                {m.text && <div className="mc-text">{m.text}</div>}
-                {m.photo && <img src={m.photo} className="mc-img" alt="attachment" onClick={()=>setFullImg(m.photo)}/>}
-              </div>
-              {isHost && (
-                <button
-                  onClick={()=>deleteGroupMessage(m.id)}
-                  title="Delete message (Host)"
-                  style={{position:'absolute',top:6,right:6,width:24,height:24,borderRadius:'50%',background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.2)',color:'#ef4444',fontSize:11,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',opacity:0.4,transition:'opacity 0.15s'}}
-                  onMouseEnter={e=>e.currentTarget.style.opacity='1'}
-                  onMouseLeave={e=>e.currentTarget.style.opacity='0.4'}
+                <div 
+                  style={{cursor: m.byUid && m.byUid !== user.uid ? 'pointer' : 'default', flexShrink: 0}}
+                  onClick={() => {
+                    if (m.byUid && m.byUid !== user.uid) {
+                      const targetUser = allUsers[m.byUid];
+                      if (targetUser) setSelectedProfile(targetUser);
+                      else {
+                          setDmTarget({ uid: m.byUid, name: m.by, photoURL: m.byPhoto });
+                          setTab("calls");
+                      }
+                    }
+                  }}
                 >
-                  🗑
+                  <Avatar name={m.by} photo={m.byPhoto}/>
+                </div>
+                <div className="mc-right" style={{ padding: (m.photo && !m.text) ? '4px 10px 10px' : undefined }}>
+                  <div className="mc-top">
+                    <span className="mc-name">{m.by}</span>
+                    <span className="mc-time">{fmtRelative(m.ts)}</span>
+                  </div>
+                  {m.text && <div className="mc-text">{m.text}</div>}
+                  {m.photo && <img src={m.photo} className="mc-img" alt="attachment" onClick={()=>setFullImg(m.photo)}/>}
+                </div>
+                <button
+                  onClick={()=>setActiveUnsendMsg(m)}
+                  title="Message options"
+                  style={{position:'absolute',top:6,right:6,width:24,height:24,borderRadius:'50%',background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',color:'#94a3b8',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',opacity:0.6,transition:'opacity 0.15s', zIndex: 10}}
+                  onMouseEnter={e=>e.currentTarget.style.opacity='1'}
+                  onMouseLeave={e=>e.currentTarget.style.opacity='0.6'}
+                >
+                  ⋮
                 </button>
-              )}
-            </div>
-          ))
-        }
+              </div>
+            ))
+          }
       </div>
 
       {/* Input area */}
@@ -1039,7 +1312,8 @@ export default function SquadAlarm() {
         </div>
       </div>
     </div>
-  );
+    );
+  };
 
   const renderLog = () => (
     <div className="log-wrap">
@@ -1369,6 +1643,8 @@ export default function SquadAlarm() {
 
     <div className="app">
 
+      <ActiveCallBanner />
+
       {/* OVERLAY ALARM */}
       {overlay && alarm && (
         <div className="ov">
@@ -1417,6 +1693,7 @@ export default function SquadAlarm() {
         </div>
       </div>
       <ProfileModal />
+      <UnsendModal />
 
       {/* BOTTOM NAV */}
       <div className="bnav">

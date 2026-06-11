@@ -132,6 +132,8 @@ const DirectMessages = forwardRef(function DirectMessages({ user, db, isHost, dm
   const [callUser, setCallUser] = useState(null); // track who we're calling even after navigating away
   const [msgFile, setMsgFile] = useState(null); // { dataUrl, name, size, type }
   const [searchQuery, setSearchQuery] = useState('');
+  const [ignoredDMs, setIgnoredDMs] = useState(new Set());
+  const [activeDMOptions, setActiveDMOptions] = useState(null);
 
   const msgEndRef = useRef(null);
   const fileRef = useRef(null);
@@ -158,8 +160,58 @@ const DirectMessages = forwardRef(function DirectMessages({ user, db, isHost, dm
       setMsgFile(null);
       setRemoteTyping(false);
       setShowEmojiPicker(false);
+    },
+    expandCall: () => {
+      setCallMinimized(false);
+      if (callUser) {
+        setSelectedUser(callUser);
+        setView('chat');
+      }
     }
-  }), [inVideoCall, selectedUser]);
+  }), [inVideoCall, selectedUser, callUser]);
+
+  /* ── LOAD IGNORED DM MESSAGES ───────────────── */
+  useEffect(() => {
+    if (user?.uid) {
+      const key = `ignored_dms_${user.uid}`;
+      const ignored = JSON.parse(localStorage.getItem(key) || "[]");
+      setIgnoredDMs(new Set(ignored));
+    }
+  }, [user?.uid]);
+
+  const unsendDMMsgForMe = (msgId) => {
+    if (!user) return;
+    const key = `ignored_dms_${user.uid}`;
+    const current = JSON.parse(localStorage.getItem(key) || "[]");
+    current.push(msgId);
+    localStorage.setItem(key, JSON.stringify(current));
+    setIgnoredDMs(new Set(current));
+  };
+
+  const DMOptionsModal = () => activeDMOptions && (
+    <div className="img-fullscreen" onClick={()=>setActiveDMOptions(null)} style={{
+      position: 'fixed', inset: 0, zIndex: 9999,
+      background: 'rgba(0,0,0,0.85)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: 20
+    }}>
+      <div className="setup-card" onClick={e=>e.stopPropagation()} style={{maxWidth:280, gap:16, background:'#0f1520', border:'1px solid rgba(255,255,255,0.09)', borderRadius:26, padding:24, display:'flex', flexDirection:'column', alignItems:'center'}}>
+        <div style={{fontSize:16,fontWeight:800,color:"#e2e8f0"}}>Message Options</div>
+        <button className="join-btn" style={{background:'#334155', fontSize:14, padding: 12, border: 'none', color: '#fff', cursor: 'pointer', borderRadius: 8, width: '100%'}} onClick={() => {
+          unsendDMMsgForMe(activeDMOptions.id);
+          setActiveDMOptions(null);
+        }}>Unsend for Me</button>
+        {(isHost || activeDMOptions.byUid === user?.uid) && (
+          <button className="join-btn" style={{background:'#ef4444', fontSize:14, padding: 12, border: 'none', color: '#fff', cursor: 'pointer', borderRadius: 8, width: '100%'}} onClick={async () => {
+            const chatId = getChatId(user.uid, selectedUser.uid);
+            await remove(ref(db, `dm_chats/${chatId}/messages/${activeDMOptions.id}`));
+            setActiveDMOptions(null);
+          }}>Unsend for Everyone</button>
+        )}
+        <button className="test-btn" style={{width:'100%'}} onClick={()=>setActiveDMOptions(null)}>Cancel</button>
+      </div>
+    </div>
+  );
 
   /* ── LOAD ALL USERS ─────────────────────────── */
   useEffect(() => {
@@ -540,16 +592,16 @@ const DirectMessages = forwardRef(function DirectMessages({ user, db, isHost, dm
       });
   }, [allUsers, chatPreviews, onlineUsers, searchQuery]);
 
-  const shouldShowAvatar = (msg, idx) => {
+  const shouldShowAvatar = (msg, idx, arr) => {
     if (msg.byUid === user.uid) return false;
     if (idx === 0) return true;
-    const prev = messages[idx - 1];
+    const prev = arr[idx - 1];
     return prev.byUid !== msg.byUid || (msg.ts - prev.ts > 300000);
   };
 
-  const shouldShowDateSep = (msg, idx) => {
+  const shouldShowDateSep = (msg, idx, arr) => {
     if (idx === 0) return true;
-    return new Date(msg.ts).toDateString() !== new Date(messages[idx - 1].ts).toDateString();
+    return new Date(msg.ts).toDateString() !== new Date(arr[idx - 1].ts).toDateString();
   };
 
   const hasContent = msgText.trim() || msgPhoto || msgFile;
@@ -727,7 +779,7 @@ const DirectMessages = forwardRef(function DirectMessages({ user, db, isHost, dm
             padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 3,
           }}
         >
-          {messages.length === 0 ? (
+          {messages.length === 0 || messages.filter(m => !ignoredDMs.has(m.id)).length === 0 ? (
             <div style={{
               display: 'flex', flexDirection: 'column', alignItems: 'center',
               justifyContent: 'center', flex: 1, gap: 8, padding: 40,
@@ -743,101 +795,101 @@ const DirectMessages = forwardRef(function DirectMessages({ user, db, isHost, dm
               </div>
             </div>
           ) : (
-            messages.map((m, idx) => {
-              const isMine = m.byUid === user.uid;
-              const showAvatar = shouldShowAvatar(m, idx);
-              const showDate = shouldShowDateSep(m, idx);
-              const canDelete = isHost || m.byUid === user.uid;
+            (() => {
+              const filteredMessages = messages.filter(m => !ignoredDMs.has(m.id));
+              return filteredMessages.map((m, idx) => {
+                const isMine = m.byUid === user.uid;
+                const showAvatar = shouldShowAvatar(m, idx, filteredMessages);
+                const showDate = shouldShowDateSep(m, idx, filteredMessages);
+                const canDelete = isHost || m.byUid === user.uid;
 
-              return (
-                <div key={m.id}>
-                  {/* Date separator */}
-                  {showDate && (
-                    <div style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      padding: '12px 0 8px',
-                    }}>
-                      <span style={{
-                        fontSize: 10, fontWeight: 700, color: '#475569',
-                        fontFamily: "'JetBrains Mono',monospace",
-                        letterSpacing: '0.12em', background: 'rgba(255,255,255,0.04)',
-                        padding: '4px 12px', borderRadius: 10,
+                return (
+                  <div key={m.id}>
+                    {/* Date separator */}
+                    {showDate && (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        padding: '12px 0 8px',
                       }}>
-                        {fmtDateLabel(m.ts)}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Message */}
-                  <div
-                    className="dm-msg-wrap"
-                    style={{
-                      display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start',
-                      alignItems: 'flex-end', gap: 6,
-                      marginTop: idx > 0 && messages[idx - 1].byUid === m.byUid && !showDate ? 2 : 8,
-                      animation: 'dmSlideIn 0.2s ease-out',
-                      position: 'relative',
-                    }}
-                    onContextMenu={(e) => { e.preventDefault(); setReactingTo(m.id); }}
-                    onTouchStart={() => handleLongPress(m.id)}
-                    onTouchEnd={cancelLongPress}
-                    onTouchMove={cancelLongPress}
-                  >
-                    {/* Avatar for received messages */}
-                    {!isMine && (
-                      showAvatar ? (
-                        <DMAvatar name={m.by} photo={m.byPhoto} size={28} />
-                      ) : (
-                        <div style={{ width: 28, flexShrink: 0 }} />
-                      )
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, color: '#475569',
+                          fontFamily: "'JetBrains Mono',monospace",
+                          letterSpacing: '0.12em', background: 'rgba(255,255,255,0.04)',
+                          padding: '4px 12px', borderRadius: 10,
+                        }}>
+                          {fmtDateLabel(m.ts)}
+                        </span>
+                      </div>
                     )}
 
-                    <div style={{ maxWidth: '75%', position: 'relative' }}>
-                      {/* Action buttons (hover / long-press) */}
-                      <div
-                        className="dm-msg-actions"
-                        style={{
-                          position: 'absolute', top: -6, zIndex: 5,
-                          ...(isMine ? { left: -4 } : { right: -4 }),
-                          display: 'flex', gap: 1, background: '#1a1d2e',
-                          borderRadius: 10, padding: '2px 3px',
-                          border: '1px solid rgba(255,255,255,0.1)',
-                          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-                        }}
-                      >
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setReplyTo({ id: m.id, text: m.text || '📷 Photo', by: m.by }); }}
+                    {/* Message */}
+                    <div
+                      className="dm-msg-wrap"
+                      style={{
+                        display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start',
+                        alignItems: 'flex-end', gap: 6,
+                        marginTop: idx > 0 && filteredMessages[idx - 1].byUid === m.byUid && !showDate ? 2 : 8,
+                        animation: 'dmSlideIn 0.2s ease-out',
+                        position: 'relative',
+                      }}
+                      onContextMenu={(e) => { e.preventDefault(); setReactingTo(m.id); }}
+                      onTouchStart={() => handleLongPress(m.id)}
+                      onTouchEnd={cancelLongPress}
+                      onTouchMove={cancelLongPress}
+                    >
+                      {/* Avatar for received messages */}
+                      {!isMine && (
+                        showAvatar ? (
+                          <DMAvatar name={m.by} photo={m.byPhoto} size={28} />
+                        ) : (
+                          <div style={{ width: 28, flexShrink: 0 }} />
+                        )
+                      )}
+
+                      <div style={{ maxWidth: '75%', position: 'relative' }}>
+                        {/* Action buttons (hover / long-press) */}
+                        <div
+                          className="dm-msg-actions"
                           style={{
-                            background: 'none', border: 'none', fontSize: 13, cursor: 'pointer',
-                            padding: '3px 5px', borderRadius: 6, color: '#94a3b8',
+                            position: 'absolute', top: -6, zIndex: 5,
+                            ...(isMine ? { left: -4 } : { right: -4 }),
+                            display: 'flex', gap: 1, background: '#1a1d2e',
+                            borderRadius: 10, padding: '2px 3px',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
                           }}
-                          title="Reply"
                         >
-                          ↩
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setReactingTo(reactingTo === m.id ? null : m.id); }}
-                          style={{
-                            background: 'none', border: 'none', fontSize: 13, cursor: 'pointer',
-                            padding: '3px 5px', borderRadius: 6, color: '#94a3b8',
-                          }}
-                          title="React"
-                        >
-                          😊
-                        </button>
-                        {canDelete && (
                           <button
-                            onClick={(e) => { e.stopPropagation(); deleteMessage(m.id); }}
+                            onClick={(e) => { e.stopPropagation(); setReplyTo({ id: m.id, text: m.text || '📷 Photo', by: m.by }); }}
                             style={{
                               background: 'none', border: 'none', fontSize: 13, cursor: 'pointer',
-                              padding: '3px 5px', borderRadius: 6, color: '#ef4444',
+                              padding: '3px 5px', borderRadius: 6, color: '#94a3b8',
                             }}
-                            title="Delete"
+                            title="Reply"
                           >
-                            🗑
+                            ↩
                           </button>
-                        )}
-                      </div>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setReactingTo(reactingTo === m.id ? null : m.id); }}
+                            style={{
+                              background: 'none', border: 'none', fontSize: 13, cursor: 'pointer',
+                              padding: '3px 5px', borderRadius: 6, color: '#94a3b8',
+                            }}
+                            title="React"
+                          >
+                            😊
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setActiveDMOptions(m); }}
+                            style={{
+                              background: 'none', border: 'none', fontSize: 13, cursor: 'pointer',
+                              padding: '3px 5px', borderRadius: 6, color: '#94a3b8',
+                            }}
+                            title="Options"
+                          >
+                            ⋮
+                          </button>
+                        </div>
 
                       {/* Reaction Picker */}
                       {reactingTo === m.id && (
@@ -892,16 +944,24 @@ const DirectMessages = forwardRef(function DirectMessages({ user, db, isHost, dm
 
                       {/* Message bubble */}
                       <div style={{
-                        background: isMine
-                          ? 'linear-gradient(135deg, #dc2626, #b91c1c)'
-                          : '#1e2030',
+                        background: (m.photo && !m.text && !m.file)
+                          ? 'transparent'
+                          : isMine
+                            ? 'linear-gradient(135deg, #dc2626, #b91c1c)'
+                            : '#1e2030',
                         borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                        padding: m.text ? '10px 14px' : '4px',
+                        padding: (m.photo && !m.text && !m.file)
+                          ? '0'
+                          : m.text
+                            ? '10px 14px'
+                            : '4px',
                         wordBreak: 'break-word', fontSize: 14, lineHeight: 1.45,
                         color: isMine ? '#fff' : '#e2e8f0',
-                        boxShadow: isMine
-                          ? '0 2px 8px rgba(220,38,38,0.2)'
-                          : '0 1px 4px rgba(0,0,0,0.15)',
+                        boxShadow: (m.photo && !m.text && !m.file)
+                          ? 'none'
+                          : isMine
+                            ? '0 2px 8px rgba(220,38,38,0.2)'
+                            : '0 1px 4px rgba(0,0,0,0.15)',
                       }}>
                         {m.text && <div>{m.text}</div>}
                         {m.photo && (
@@ -1008,7 +1068,8 @@ const DirectMessages = forwardRef(function DirectMessages({ user, db, isHost, dm
                   </div>
                 </div>
               );
-            })
+              });
+            })()
           )}
 
           {/* Typing indicator */}
@@ -1357,6 +1418,7 @@ const DirectMessages = forwardRef(function DirectMessages({ user, db, isHost, dm
           }}
         />
       )}
+      <DMOptionsModal />
     </>
   );
 });
