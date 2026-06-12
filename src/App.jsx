@@ -847,8 +847,9 @@ export default function SquadAlarm() {
       
       let incoming = null;
       Object.entries(data).forEach(([chatId, callData]) => {
-        if (chatId.includes(currentUid) && callData.caller !== currentUid && callData.status === 'ringing') {
-          const otherUid = chatId.split('_').find(id => id !== currentUid);
+        const uids = chatId.split('_');
+        if (uids.includes(currentUid) && callData.caller !== currentUid && callData.status === 'ringing') {
+          const otherUid = uids.find(id => id !== currentUid);
           const otherData = allUsersRef.current[otherUid] || {
             uid: otherUid,
             name: 'Teammate',
@@ -873,6 +874,24 @@ export default function SquadAlarm() {
       clearInterval(sLoop.current);
     };
   }, [phase]);
+
+  // Ringtone player for incoming calls
+  useEffect(() => {
+    let ringInterval = null;
+    if (incomingCallInfo && !inVideoCall) {
+      // Play immediately
+      playPing();
+      buzz();
+      // Repeat every 2 seconds
+      ringInterval = setInterval(() => {
+        playPing();
+        buzz();
+      }, 2000);
+    }
+    return () => {
+      if (ringInterval) clearInterval(ringInterval);
+    };
+  }, [incomingCallInfo, inVideoCall]);
 
   /* ── Handlers ─────────────────────────────── */
   const getFriendlyErrorMessage = (error) => {

@@ -8,6 +8,39 @@ const ICE_SERVERS = [
   { urls: 'stun:stun1.l.google.com:19302' }
 ];
 
+const COLORS = ["#e53935","#8e24aa","#1565c0","#00838f","#2e7d32","#e65100","#6a1b9a","#ad1457"];
+const avatarColor = name => COLORS[(name || "").toUpperCase().charCodeAt(0) % COLORS.length];
+const initials = name => (name || "").trim().split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
+
+function Avatar({ name, photo, size = 36 }) {
+  if (photo) {
+    return (
+      <img
+        src={photo}
+        alt={name}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: "50%",
+          objectFit: "cover",
+          flexShrink: 0,
+          border: "1px solid rgba(255, 255, 255, 0.1)"
+        }}
+      />
+    );
+  }
+  return (
+    <div style={{
+      width:size, height:size, borderRadius:"50%", background:avatarColor(name),
+      display:"flex", alignItems:"center", justifyContent:"center",
+      fontSize:size*.36, fontWeight:800, color:"#fff", flexShrink:0,
+      fontFamily:"'JetBrains Mono',monospace", letterSpacing:"-.02em",
+    }}>
+      {initials(name)}
+    </div>
+  );
+}
+
 const PIP_CSS = `
 @keyframes pipSlideIn {
   from { opacity: 0; transform: scale(0.6) translateY(20px); }
@@ -79,18 +112,27 @@ export default function DMVideoCall({ user, db, chatId, otherUser, onEndCall, mi
         setLocalStream(s);
         streamRef.current = s;
         const callRef = ref(db, `dm_calls/${chatId}`);
+        let hasInitialized = false;
         onValue(callRef, snap => {
           const data = snap.val();
           if (!data) {
-            setStatus('ringing');
-            set(callRef, { caller: user.uid, status: 'ringing', ts: Date.now() });
-          } else if (data.status === 'ringing' && data.caller !== user.uid) {
-            setStatus('active');
-            set(callRef, { ...data, status: 'active' });
-            startP2P(false);
-          } else if (data.status === 'active' && data.caller === user.uid && !peerRef.current) {
-            setStatus('active');
-            startP2P(true);
+            if (hasInitialized) {
+              cleanup();
+            } else {
+              hasInitialized = true;
+              setStatus('ringing');
+              set(callRef, { caller: user.uid, status: 'ringing', ts: Date.now() });
+            }
+          } else {
+            hasInitialized = true;
+            if (data.status === 'ringing' && data.caller !== user.uid) {
+              setStatus('active');
+              set(callRef, { ...data, status: 'active' });
+              startP2P(false);
+            } else if (data.status === 'active' && data.caller === user.uid && !peerRef.current) {
+              setStatus('active');
+              startP2P(true);
+            }
           }
         });
       })
@@ -326,12 +368,34 @@ export default function DMVideoCall({ user, db, chatId, otherUser, onEndCall, mi
             />
           </>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-            <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#334155', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32, marginBottom: 16 }}>
-              {otherUser?.name?.[0] || '?'}
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100%',
+            gap: 24,
+            padding: 24,
+            background: 'linear-gradient(180deg, rgba(15,23,42,0.85) 0%, rgba(7,9,13,1) 100%)',
+            backdropFilter: 'blur(20px)'
+          }}>
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 20,
+              animation: 'pipPulse 2.5s ease-in-out infinite'
+            }}>
+              <Avatar name={otherUser?.name} photo={otherUser?.photoURL} size={100} />
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 24, fontWeight: 800, color: '#fff', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>
+                  {otherUser?.name}
+                </div>
+                <div style={{ fontSize: 14, color: '#3b82f6', fontWeight: 600, letterSpacing: '0.05em', marginTop: 8, textTransform: 'uppercase' }}>
+                  {status === 'ringing' ? 'Ringing...' : 'Connecting...'}
+                </div>
+              </div>
             </div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#f1f5f9' }}>{otherUser?.name}</div>
-            <div style={{ fontSize: 14, color: '#94a3b8', marginTop: 8 }}>{status === 'ringing' ? 'Ringing...' : 'Connecting...'}</div>
           </div>
         )}
 
